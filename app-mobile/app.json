@@ -15,6 +15,15 @@
     "ios": {
       "supportsTablet": true
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysPermission": "O BibiMarcos precisa de acesso à localização para conectar motoristas e passageiros mesmo em segundo plano."
+        }
+      ],
+      "expo-task-manager"
+    ],
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
@@ -22,11 +31,18 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.bibimarcos.bibimarcosapp",
+      "config": {
+        "foregroundService": {
+          "notificationTitle": "BibiMarcos Online",
+          "notificationDotColor": "#10b981"
+        }
+      },
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE"
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
       ],
       "softwareKeyboardLayoutMode": "resize"
     },

@@ -136,6 +136,15 @@ export default function App() {
       }
       
       // Rastreamento Profissional em Segundo Plano (estilo Uber)
+      const { status: fgStatus } = await Location.getForegroundPermissionsAsync();
+      const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+      
+      if (fgStatus !== 'granted' || bgStatus !== 'granted') {
+        setIsDriverOnline(false);
+        Alert.alert("Aviso de Segurança", "O rastreamento do motorista requer permissão de localização 'Permitir o tempo todo'. Por favor, altere nas configurações do Android.");
+        return;
+      }
+
       try {
         await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
           accuracy: Location.Accuracy.High,
