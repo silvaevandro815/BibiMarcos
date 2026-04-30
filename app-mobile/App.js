@@ -17,7 +17,7 @@ import * as Location from 'expo-location';
 import io from 'socket.io-client';
 
 // A URL agora é configurada por variáveis de ambiente ou aponta localmente por padrão
-const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://127.0.0.1:8000';
+const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws';
 const socket = io(SOCKET_URL, { autoConnect: false });
 
 export default function App() {
