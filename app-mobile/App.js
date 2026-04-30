@@ -22,34 +22,38 @@ const HTTP_API_URL = SOCKET_URL.replace('ws://', 'http://').replace('/ws', '');
 
 const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
-TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
-  if (error) {
-    console.error(error);
-    return;
-  }
-  if (data) {
-    const { locations } = data;
-    const loc = locations[0];
-    if (loc) {
-      try {
-        await fetch(`${HTTP_API_URL}/api/location/update`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'BibiMarcosApp-Muriae/1.0'
-          },
-          body: JSON.stringify({
-            id_motorista: 1, // Mock
-            lat: loc.coords.latitude,
-            lng: loc.coords.longitude
-          })
-        });
-      } catch (err) {
-        console.error("Erro ao enviar loc no background:", err);
+try {
+  TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+    if (error) {
+      console.error(error);
+      return;
+    }
+    if (data) {
+      const { locations } = data;
+      const loc = locations[0];
+      if (loc) {
+        try {
+          await fetch(`${HTTP_API_URL}/api/location/update`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'BibiMarcosApp-Muriae/1.0'
+            },
+            body: JSON.stringify({
+              id_motorista: 1, // Mock
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude
+            })
+          });
+        } catch (err) {
+          console.error("Erro ao enviar loc no background:", err);
+        }
       }
     }
-  }
-});
+  });
+} catch (error) {
+  console.warn("Falha ao definir a task de background:", error);
+}
 
 export default function App() {
   const [isDriverOnline, setIsDriverOnline] = useState(false);
@@ -132,17 +136,22 @@ export default function App() {
       }
       
       // Rastreamento Profissional em Segundo Plano (estilo Uber)
-      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High,
-        timeInterval: 5000,
-        distanceInterval: 10,
-        showsBackgroundLocationIndicator: true,
-        foregroundService: {
-          notificationTitle: "BibiMarcos Ativo",
-          notificationBody: "Compartilhando sua localização com os passageiros.",
-          notificationColor: "#10b981",
-        },
-      });
+      try {
+        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000,
+          distanceInterval: 10,
+          showsBackgroundLocationIndicator: true,
+          foregroundService: {
+            notificationTitle: "BibiMarcos Ativo",
+            notificationBody: "Compartilhando sua localização com os passageiros.",
+            notificationColor: "#10b981",
+          },
+        });
+      } catch (error) {
+        Alert.alert("Aviso", "Não foi possível iniciar o rastreamento em 2º plano. Verifique as permissões de localização.");
+        console.warn("Erro no startLocationUpdatesAsync:", error);
+      }
 
       // Também manter o Foreground para atualizar a UI localmente de forma suave
       locationSubscription.current = await Location.watchPositionAsync(
