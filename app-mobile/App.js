@@ -83,24 +83,36 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      let { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-      if (fgStatus !== 'granted') {
-        Alert.alert('Erro', 'Permissão de localização negada');
-        return;
-      }
-      
-      let { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      if (bgStatus !== 'granted') {
-        console.warn('Permissão em 2º plano negada, o rastreamento em background pode falhar.');
-      }
+      try {
+        let { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+        if (fgStatus !== 'granted') {
+          Alert.alert('Erro', 'Permissão de localização negada');
+          return;
+        }
 
-      let currentLoc = await Location.getCurrentPositionAsync({});
-      setLocation({
-        latitude: currentLoc.coords.latitude,
-        longitude: currentLoc.coords.longitude,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
-      });
+        // NÃO solicite permissão de background aqui no Android 14+! 
+        // Isso causa um SecurityException e o app fecha. 
+        // A permissão de background só deve ser pedida quando o usuário ativar o modo motorista.
+
+        // Usa getLastKnownPositionAsync primeiro para evitar crash se o GPS estiver buscando sinal
+        let currentLoc = await Location.getLastKnownPositionAsync({});
+        if (!currentLoc) {
+          currentLoc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+        }
+        
+        if (currentLoc) {
+          setLocation({
+            latitude: currentLoc.coords.latitude,
+            longitude: currentLoc.coords.longitude,
+            latitudeDelta: 0.015,
+            longitudeDelta: 0.015,
+          });
+        }
+      } catch (error) {
+        console.warn("Erro ao obter localização inicial:", error);
+      }
     })();
 
     // Conexão WebSocket Nativa
@@ -133,13 +145,46 @@ export default function App() {
       
       // Rastreamento Profissional em Segundo Plano (estilo Uber)
       const { status: fgStatus } = await Location.getForegroundPermissionsAsync();
-      const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
-      
-      if (fgStatus !== 'granted' || bgStatus !== 'granted') {
+      let bgStatus = (await Location.getBackgroundPermissionsAsync()).status;
+
+      // No Android 11+, a permissão de background deve ser pedida de forma separada
+      if (fgStatus === 'granted' && bgStatus !== 'granted') {
+        Alert.alert(
+          "Permissão Necessária",
+          "Para receber corridas com o app fechado, selecione 'Permitir o tempo todo' na próxima tela.",
+          [
+            { text: "Cancelar", style: "cancel", onPress: () => setIsDriverOnline(false) },
+            { 
+              text: "Configurar", 
+              onPress: async () => {
+                const { status } = await Location.requestBackgroundPermissionsAsync();
+                if (status === 'granted') {
+                  finishToggleDriverMode();
+                } else {
+                  setIsDriverOnline(false);
+                }
+              }
+            }
+          ]
+        );
+        return;
+      } else if (fgStatus !== 'granted') {
         setIsDriverOnline(false);
-        Alert.alert("Aviso de Segurança", "O rastreamento do motorista requer permissão de localização 'Permitir o tempo todo'. Por favor, altere nas configurações do Android.");
+        Alert.alert("Aviso de Segurança", "O rastreamento do motorista requer permissão de localização.");
         return;
       }
+
+      finishToggleDriverMode();
+    } else {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+    }
+  };
+
+  const finishToggleDriverMode = async () => {
 
       try {
         await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
@@ -183,13 +228,6 @@ export default function App() {
           }
         }
       );
-    } else {
-      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-        locationSubscription.current = null;
-      }
-    }
   };
 
   // Alternativa gratuita usando Nominatim (OpenStreetMap)
