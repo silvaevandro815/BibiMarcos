@@ -14,11 +14,8 @@ import {
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import QRCode from 'react-native-qrcode-svg';
 import * as Location from 'expo-location';
-import io from 'socket.io-client';
-
 // A URL agora é configurada por variáveis de ambiente ou aponta localmente por padrão
 const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws';
-const socket = io(SOCKET_URL, { autoConnect: false });
 
 export default function App() {
   const [isDriverOnline, setIsDriverOnline] = useState(false);
@@ -35,6 +32,12 @@ export default function App() {
   const [destinationQuery, setDestinationQuery] = useState('');
   const [destinationResults, setDestinationResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+
+  // Estados para o Chat
+  const [chatVisible, setChatVisible] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const ws = useRef(null);
 
   const [drivers, setDrivers] = useState([
     // Mock inicial, depois pode vir do /match da sua API
@@ -61,11 +64,22 @@ export default function App() {
       });
     })();
 
+    // Conexão WebSocket Nativa
+    ws.current = new WebSocket(SOCKET_URL);
+    ws.current.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'chat') {
+          setChatMessages(prev => [...prev, data]);
+        }
+      } catch (err) {}
+    };
+
     return () => {
       if (locationSubscription.current) {
         locationSubscription.current.remove();
       }
-      socket.disconnect();
+      ws.current?.close();
     };
   }, []);
 
@@ -74,9 +88,10 @@ export default function App() {
     setIsDriverOnline(newValue);
 
     if (newValue) {
-      socket.connect();
+      if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+        ws.current = new WebSocket(SOCKET_URL);
+      }
       
-      // Captura localização e envia pro Socket a cada 5s
       locationSubscription.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -92,15 +107,16 @@ export default function App() {
           };
           setLocation(newCoord);
           
-          socket.emit('update_location', {
-            driver_id: 1, // Exemplo
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          });
+          if (ws.current?.readyState === WebSocket.OPEN) {
+            ws.current.send(JSON.stringify({
+              driver_id: 1,
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            }));
+          }
         }
       );
     } else {
-      socket.disconnect();
       if (locationSubscription.current) {
         locationSubscription.current.remove();
         locationSubscription.current = null;
@@ -118,7 +134,8 @@ export default function App() {
 
     setIsSearching(true);
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${text}&format=json&addressdetails=1&limit=5`, {
+      // Filtro exclusivo para Muriaé adicionado na query
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${text}, Muriaé, MG, Brasil&format=json&addressdetails=1&limit=5`, {
         headers: { 'User-Agent': 'BibiMarcosApp-Muriae/1.0' }
       });
       const data = await response.json();
@@ -160,11 +177,23 @@ export default function App() {
     setDestinationQuery('');
     Alert.alert('Viagem solicitada', `Traçando rota para:\n${item.display_name}`);
     
-    // A API Nominatim retorna lat e lon como strings
     fetchRoute(parseFloat(item.lat), parseFloat(item.lon));
-    
-    // Aqui você chamaria o fetch para sua rota POST /match
-    // com a sua location atual e atualizaria os 'drivers' do mapa
+  };
+
+  const sendChatMessage = () => {
+    if (chatInput.trim() === '') return;
+    const msg = {
+      type: 'chat',
+      text: chatInput,
+      sender: isDriverOnline ? 'motorista' : 'passageiro',
+      timestamp: new Date().toISOString()
+    };
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify(msg));
+    } else {
+      setChatMessages(prev => [...prev, msg]); // Caso esteja offline
+    }
+    setChatInput('');
   };
 
   return (
@@ -217,18 +246,20 @@ export default function App() {
             )}
             {/* Marcador do Passageiro/Usuário atual */}
             <Marker coordinate={location} title="Sua posição">
-              <View className="bg-blue-600 border-2 border-white rounded-full w-5 h-5 shadow-lg" />
+              <View className="bg-emerald-800 border-2 border-yellow-400 rounded-full w-10 h-10 justify-center items-center shadow-lg">
+                <Text className="text-white text-base">👤</Text>
+              </View>
             </Marker>
 
-            {/* Marcadores dos Motoristas (Carrinhos) */}
+            {/* Marcadores dos Motoristas (Carrinhos Verdes) */}
             {drivers.map(driver => (
               <Marker 
                 key={driver.id} 
                 coordinate={{ latitude: driver.latitude, longitude: driver.longitude }} 
                 title={`Motorista #${driver.id}`}
               >
-                <View className="bg-emerald-600 p-1.5 rounded-lg border-2 border-yellow-400 shadow-md">
-                  <Text className="text-white text-xs">🚕</Text>
+                <View className="bg-emerald-100 p-1 rounded-full border-2 border-emerald-500 shadow-md w-10 h-10 justify-center items-center">
+                  <Text className="text-xl">🚙</Text>
                 </View>
               </Marker>
             ))}
@@ -254,7 +285,7 @@ export default function App() {
           </View>
         )}
 
-        {/* Botão de Finalizar Viagem (Apenas visível para demonstração quando há rota ativa) */}
+        {/* Botão de Finalizar Viagem */}
         {routeCoordinates.length > 0 && !isDriverOnline && (
           <View className="absolute bottom-28 left-6 right-6">
             <TouchableOpacity
@@ -267,6 +298,18 @@ export default function App() {
               <Text className="text-emerald-900 text-lg font-bold text-center uppercase tracking-widest">
                 Finalizar Viagem
               </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Botão de Chat flutuante */}
+        {routeCoordinates.length > 0 && (
+          <View className="absolute top-10 right-4">
+            <TouchableOpacity
+              className="bg-emerald-600 w-14 h-14 rounded-full justify-center items-center shadow-lg border-2 border-white"
+              onPress={() => setChatVisible(true)}
+            >
+              <Text className="text-white text-2xl">💬</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -372,6 +415,54 @@ export default function App() {
             >
               <Text className="text-center text-slate-700 font-bold text-lg uppercase">Fechar</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal de Chat em Tempo Real */}
+      <Modal
+        visible={chatVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setChatVisible(false)}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white rounded-t-3xl h-[60%] border-t-[6px] border-emerald-700 flex-col pb-4">
+            <View className="bg-emerald-800 p-5 rounded-t-2xl flex-row justify-between items-center">
+              <Text className="text-white font-bold text-lg">Chat da Viagem</Text>
+              <TouchableOpacity onPress={() => setChatVisible(false)} className="bg-emerald-700 px-3 py-1 rounded-full">
+                <Text className="text-white font-bold">X</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <FlatList
+              className="flex-1 p-4"
+              data={chatMessages}
+              keyExtractor={(_, index) => index.toString()}
+              renderItem={({ item }) => {
+                const isMe = item.sender === (isDriverOnline ? 'motorista' : 'passageiro');
+                return (
+                  <View className={`mb-3 max-w-[80%] rounded-2xl p-3 shadow-sm ${isMe ? 'bg-emerald-100 self-end rounded-br-sm' : 'bg-slate-200 self-start rounded-bl-sm'}`}>
+                    <Text className="text-slate-800 font-medium">{item.text}</Text>
+                  </View>
+                );
+              }}
+            />
+            
+            <View className="p-4 border-t border-slate-200 flex-row items-center">
+              <TextInput
+                className="flex-1 bg-slate-100 rounded-full px-5 py-3 mr-3 border border-slate-300 text-slate-800 text-base"
+                placeholder="Escreva sua mensagem..."
+                value={chatInput}
+                onChangeText={setChatInput}
+              />
+              <TouchableOpacity 
+                className="bg-emerald-600 w-12 h-12 rounded-full justify-center items-center shadow-md"
+                onPress={sendChatMessage}
+              >
+                <Text className="text-white font-extrabold text-lg">›</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

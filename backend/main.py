@@ -28,6 +28,10 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
 
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            await connection.send_text(message)
+
 manager = ConnectionManager()
 
 async def update_driver_location(driver_id: int, lat: float, lon: float):
@@ -53,7 +57,11 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
             payload = json.loads(data)
             
-            if "latitude" in payload and "longitude" in payload and "driver_id" in payload:
+            # Tratamento do Chat
+            if "type" in payload and payload["type"] == "chat":
+                await manager.broadcast(data)
+            # Tratamento de Localização
+            elif "latitude" in payload and "longitude" in payload and "driver_id" in payload:
                 await update_driver_location(
                     driver_id=payload["driver_id"],
                     lat=payload["latitude"],
