@@ -22,38 +22,34 @@ const HTTP_API_URL = SOCKET_URL.replace('ws://', 'http://').replace('/ws', '');
 
 const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
 
-try {
-  TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
-    if (error) {
-      console.error(error);
-      return;
-    }
-    if (data) {
-      const { locations } = data;
-      const loc = locations[0];
-      if (loc) {
-        try {
-          await fetch(`${HTTP_API_URL}/api/location/update`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent': 'BibiMarcosApp-Muriae/1.0'
-            },
-            body: JSON.stringify({
-              id_motorista: 1, // Mock
-              lat: loc.coords.latitude,
-              lng: loc.coords.longitude
-            })
-          });
-        } catch (err) {
-          console.error("Erro ao enviar loc no background:", err);
-        }
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+  if (error) {
+    console.error(error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    const loc = locations[0];
+    if (loc) {
+      try {
+        await fetch(`${HTTP_API_URL}/api/location/update`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'BibiMarcosApp-Muriae/1.0'
+          },
+          body: JSON.stringify({
+            id_motorista: 1, // Mock
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude
+          })
+        });
+      } catch (err) {
+        console.error("Erro ao enviar loc no background:", err);
       }
     }
-  });
-} catch (error) {
-  console.warn("Falha ao definir a task de background:", error);
-}
+  }
+});
 
 export default function App() {
   const [isDriverOnline, setIsDriverOnline] = useState(false);

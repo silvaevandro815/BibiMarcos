@@ -10,10 +10,10 @@
   },
   "dependencies": {
     "expo": "~54.0.33",
-    "expo-build-properties": "^55.0.13",
-    "expo-location": "^55.1.8",
+    "expo-build-properties": "~1.0.10",
+    "expo-location": "~19.0.8",
     "expo-status-bar": "~3.0.9",
-    "expo-task-manager": "^55.0.15",
+    "expo-task-manager": "~14.0.9",
     "nativewind": "^4.1.23",
     "react": "19.1.0",
     "react-native": "0.81.5",
@@ -25,6 +25,6 @@
   },
   "private": true,
   "devDependencies": {
-    "babel-preset-expo": "^55.0.18"
+    "babel-preset-expo": "~54.0.10"
   }
 }
