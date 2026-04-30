@@ -19,10 +19,27 @@
       [
         "expo-location",
         {
-          "locationAlwaysPermission": "O BibiMarcos precisa de acesso à localização para conectar motoristas e passageiros mesmo em segundo plano."
+          "locationAlwaysPermission": "O BibiMarcos precisa de acesso à localização para conectar motoristas e passageiros mesmo em segundo plano.",
+          "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      "expo-task-manager"
+      "expo-task-manager",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
+        }
+      ],
+      [
+        "./plugins/withAndroidForegroundService",
+        {
+          "foregroundServiceType": "location"
+        }
+      ]
     ],
     "android": {
       "adaptiveIcon": {
