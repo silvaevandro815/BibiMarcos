@@ -73,6 +73,19 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"Erro no WebSocket: {e}")
         manager.disconnect(websocket)
 
+class LocationUpdate(BaseModel):
+    id_motorista: int
+    lat: float
+    lng: float
+
+@app.post("/api/location/update")
+async def api_update_location(payload: LocationUpdate):
+    try:
+        await update_driver_location(payload.id_motorista, payload.lat, payload.lng)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
 @app.get("/")
 def read_root():
     return {"status": "Backend BibiMarcos online!", "message": "API está rodando com sucesso"}

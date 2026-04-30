@@ -9,13 +9,47 @@ import {
   SafeAreaView, 
   ActivityIndicator, 
   FlatList,
-  Alert
+  Alert,
+  Image
 } from 'react-native';
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import QRCode from 'react-native-qrcode-svg';
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
 // A URL agora é configurada por variáveis de ambiente ou aponta localmente por padrão
 const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws';
+const HTTP_API_URL = SOCKET_URL.replace('ws://', 'http://').replace('/ws', '');
+
+const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION_TASK';
+
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+  if (error) {
+    console.error(error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    const loc = locations[0];
+    if (loc) {
+      try {
+        await fetch(`${HTTP_API_URL}/api/location/update`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'BibiMarcosApp-Muriae/1.0'
+          },
+          body: JSON.stringify({
+            id_motorista: 1, // Mock
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude
+          })
+        });
+      } catch (err) {
+        console.error("Erro ao enviar loc no background:", err);
+      }
+    }
+  }
+});
 
 export default function App() {
   const [isDriverOnline, setIsDriverOnline] = useState(false);
@@ -49,10 +83,15 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      let { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus !== 'granted') {
         Alert.alert('Erro', 'Permissão de localização negada');
         return;
+      }
+      
+      let { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (bgStatus !== 'granted') {
+        console.warn('Permissão em 2º plano negada, o rastreamento em background pode falhar.');
       }
 
       let currentLoc = await Location.getCurrentPositionAsync({});
@@ -92,6 +131,20 @@ export default function App() {
         ws.current = new WebSocket(SOCKET_URL);
       }
       
+      // Rastreamento Profissional em Segundo Plano (estilo Uber)
+      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 5000,
+        distanceInterval: 10,
+        showsBackgroundLocationIndicator: true,
+        foregroundService: {
+          notificationTitle: "BibiMarcos Ativo",
+          notificationBody: "Compartilhando sua localização com os passageiros.",
+          notificationColor: "#10b981",
+        },
+      });
+
+      // Também manter o Foreground para atualizar a UI localmente de forma suave
       locationSubscription.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -117,6 +170,7 @@ export default function App() {
         }
       );
     } else {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
       if (locationSubscription.current) {
         locationSubscription.current.remove();
         locationSubscription.current = null;
@@ -198,15 +252,15 @@ export default function App() {
 
   return (
     <SafeAreaView className="flex-1 bg-slate-50">
-      {/* Header Estilo Governamental (Verde e Amarelo discreto) */}
-      <View className="bg-emerald-800 p-5 pt-12 flex-row justify-between items-center shadow-lg border-b-4 border-yellow-400">
+      {/* Header Elegante BibiMarcos */}
+      <View className="bg-emerald-900 p-6 pt-14 flex-row justify-between items-center shadow-2xl border-b-[6px] border-emerald-500 rounded-b-3xl z-10">
         <View>
-          <Text className="text-white text-2xl font-bold tracking-tight">GovTransporte</Text>
-          <Text className="text-emerald-100 text-xs font-medium uppercase tracking-wider">Mobilidade Urbana</Text>
+          <Text className="text-white text-3xl font-extrabold tracking-tighter drop-shadow-md">BibiMarcos</Text>
+          <Text className="text-emerald-200 text-xs font-bold uppercase tracking-widest mt-1">Sua cidade. Seu motorista.</Text>
         </View>
-        <View className="flex-col items-center">
-          <Text className="text-white mb-1 text-xs font-bold uppercase tracking-wider">
-            {isDriverOnline ? 'Online' : 'Offline'}
+        <View className="flex-col items-center bg-emerald-800 p-2 rounded-2xl border border-emerald-600 shadow-inner">
+          <Text className="text-white mb-2 text-[10px] font-black uppercase tracking-widest">
+            {isDriverOnline ? '🟢 Online' : '⚫ Offline'}
           </Text>
           <Switch
             value={isDriverOnline}
@@ -245,22 +299,25 @@ export default function App() {
               />
             )}
             {/* Marcador do Passageiro/Usuário atual */}
-            <Marker coordinate={location} title="Sua posição">
-              <View className="bg-emerald-800 border-2 border-yellow-400 rounded-full w-10 h-10 justify-center items-center shadow-lg">
-                <Text className="text-white text-base">👤</Text>
+            <Marker coordinate={location} title="Local de Partida">
+              <View className="bg-emerald-900 border-[3px] border-emerald-400 rounded-full w-12 h-12 justify-center items-center shadow-2xl elevation-10">
+                <Text className="text-white text-xl drop-shadow-lg">📍</Text>
               </View>
             </Marker>
 
-            {/* Marcadores dos Motoristas (Carrinhos Verdes) */}
+            {/* Marcadores dos Motoristas (Renderizando Imagem do Asset local) */}
             {drivers.map(driver => (
               <Marker 
                 key={driver.id} 
                 coordinate={{ latitude: driver.latitude, longitude: driver.longitude }} 
                 title={`Motorista #${driver.id}`}
               >
-                <View className="bg-emerald-100 p-1 rounded-full border-2 border-emerald-500 shadow-md w-10 h-10 justify-center items-center">
-                  <Text className="text-xl">🚙</Text>
-                </View>
+                {/* Fallback de UI caso o asset não exista no mock de ambiente (car3d.png) */}
+                <Image 
+                  source={require('./assets/car3d.png')} 
+                  style={{ width: 45, height: 45, resizeMode: 'contain' }} 
+                  defaultSource={{uri: 'https://cdn-icons-png.flaticon.com/512/3204/3204905.png'}}
+                />
               </Marker>
             ))}
           </MapView>
