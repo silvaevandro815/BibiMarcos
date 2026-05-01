@@ -59,9 +59,9 @@ export default function App() {
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [pickupLocation, setPickupLocation] = useState(null);
   
-  // Dummy data para o PIX do Motorista
-  const motoristaPix = "123.456.789-00";
-  const valorCorrida = "25.50";
+  // Variáveis para Pagamento Direto ao Motorista (100% repasse)
+  const motoristaPix = "123.456.789-00"; // Chave Pix mockada
+  const [valorCorrida, setValorCorrida] = useState("0.00");
   
   // Estados para a busca de destino (OpenStreetMap)
   const [destinationQuery, setDestinationQuery] = useState('');
@@ -274,6 +274,48 @@ export default function App() {
     }
   };
 
+  // Algoritmo de Precificação Justa (Motorista não paga taxa)
+  // Baseado na Gasolina a R$ 7.00/litro e rendimento médio de 10km/l na cidade
+  const calculateFare = (distanceInMeters) => {
+    const distanceInKm = distanceInMeters / 1000;
+    
+    // Parâmetros Fixos
+    const baseFare = 5.00; // Bandeirada (Taxa mínima de acionamento)
+    const ratePerKm = 2.20; // R$ 0.70 de custo de combustível + R$ 1.50 de tempo/lucro por KM
+    const minFare = 8.00; // A corrida nunca custará menos que isso
+
+    let rawPrice = baseFare + (distanceInKm * ratePerKm);
+
+    // Variáveis de Tempo Real
+    const now = new Date();
+    const hour = now.getHours();
+    const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
+    
+    let multiplier = 1.0; // Horário comercial normal
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    // Regras de Tarifa Dinâmica / Bandeiras
+    if (hour >= 0 && hour < 6) {
+      // Madrugada: Bandeira 3 (+50% de risco/demanda)
+      multiplier = 1.5;
+    } else if (hour >= 20 && hour <= 23) {
+      // Noite: Bandeira 2 (+20% ou +30% se for fds)
+      multiplier = isWeekend ? 1.3 : 1.2;
+    } else if (isWeekend) {
+      // Fim de semana de dia (+20%)
+      multiplier = 1.2;
+    }
+
+    let finalPrice = rawPrice * multiplier;
+
+    // Garante que viagens muito curtas paguem o mínimo viável
+    if (finalPrice < minFare) {
+      finalPrice = minFare;
+    }
+    
+    return finalPrice.toFixed(2);
+  };
+
   const fetchRoute = async (destLat, destLon) => {
     // Usa a localização do pino móvel (pickupLocation) como partida, ou o GPS nativo
     const startLocation = pickupLocation || location;
@@ -296,6 +338,10 @@ export default function App() {
           longitude: c[0]
         }));
         setRouteCoordinates(coords);
+        
+        // Calcular e definir o preço exato com base na distância da rota
+        const distanceMeters = data.routes[0].distance; // OSRM fornece em metros
+        setValorCorrida(calculateFare(distanceMeters));
       }
     } catch (err) {
       console.error("Erro ao buscar rota OSRM", err);
@@ -614,8 +660,9 @@ export default function App() {
             <Text className="text-slate-500 mb-6 text-center">Pague diretamente ao motorista. Taxa Zero para o governo.</Text>
 
             <View className="bg-emerald-50 rounded-xl p-4 w-full items-center mb-6 border border-emerald-200">
-              <Text className="text-emerald-700 text-sm font-bold uppercase mb-1">Valor Total</Text>
+              <Text className="text-emerald-700 text-sm font-bold uppercase mb-1">Valor Total a Pagar</Text>
               <Text className="text-4xl font-extrabold text-emerald-900">R$ {valorCorrida}</Text>
+              <Text className="text-emerald-600 text-[10px] mt-1 font-bold uppercase tracking-wider">100% do valor vai para o motorista</Text>
             </View>
 
             <View className="bg-white p-2 rounded-xl shadow-sm border border-slate-200 mb-6">
