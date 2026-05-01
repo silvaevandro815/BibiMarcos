@@ -88,11 +88,17 @@ export default function App() {
     // Tocar Som de Partida de Carro
     const playEngineSound = async () => {
       try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+
         const { sound } = await Audio.Sound.createAsync(
-          { uri: 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_3d1e67eeef.mp3?filename=car-engine-starting-43639.mp3' },
+          // URL garantida (Google Actions Sound Library)
+          { uri: 'https://actions.google.com/sounds/v1/transportation/car_engine_start.ogg' },
           { shouldPlay: true }
         );
-        // O som tocará automaticamente.
         await sound.playAsync();
       } catch (err) {
         console.warn("Erro ao tocar o som da engine:", err);
@@ -409,11 +415,20 @@ export default function App() {
 
   return (
     <SafeAreaView className="flex-1 bg-slate-50">
-      {/* Header Elegante BibiMarcos */}
-      <View className="bg-emerald-900 p-6 pt-14 flex-row justify-between items-center shadow-2xl border-b-[6px] border-emerald-500 rounded-b-3xl z-10">
-        <View>
-          <Text className="text-white text-3xl font-extrabold tracking-tighter drop-shadow-md">BibiMarcos</Text>
-          <Text className="text-emerald-200 text-xs font-bold uppercase tracking-widest mt-1">Sua cidade. Seu motorista.</Text>
+      {/* Header Elegante BibiMarcos com Logo */}
+      <View className="bg-emerald-900 p-5 pt-14 flex-row justify-between items-center shadow-2xl border-b-[6px] border-emerald-500 rounded-b-3xl z-10">
+        <View className="flex-row items-center">
+          <View className="bg-white p-1 rounded-full mr-3 shadow-md border-2 border-emerald-400">
+            <Image 
+              source={require('./assets/icon.png')} 
+              style={{ width: 45, height: 45, borderRadius: 22.5 }} 
+              resizeMode="contain"
+            />
+          </View>
+          <View>
+            <Text className="text-white text-2xl font-extrabold tracking-tighter drop-shadow-md">BibiMarcos</Text>
+            <Text className="text-emerald-200 text-[10px] font-bold uppercase tracking-widest mt-1">Sua cidade. Seu motorista.</Text>
+          </View>
         </View>
         <View className="flex-col items-center bg-emerald-800 p-2 rounded-2xl border border-emerald-600 shadow-inner">
           <Text className="text-white mb-2 text-[10px] font-black uppercase tracking-widest">
