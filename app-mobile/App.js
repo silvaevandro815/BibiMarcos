@@ -87,19 +87,28 @@ export default function App() {
         let { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
         if (fgStatus !== 'granted') {
           Alert.alert('Erro', 'Permissão de localização negada');
+          // Fallback para não travar o app em tela de carregamento
+          setLocation({ latitude: -21.1306, longitude: -42.3642, latitudeDelta: 0.05, longitudeDelta: 0.05 });
           return;
         }
 
-        // NÃO solicite permissão de background aqui no Android 14+! 
-        // Isso causa um SecurityException e o app fecha. 
-        // A permissão de background só deve ser pedida quando o usuário ativar o modo motorista.
+        // 1. Tenta a última posição conhecida (Rápido e não consome bateria)
+        let currentLoc = await Location.getLastKnownPositionAsync({
+          maxAge: 60000 // Aceita cache de até 1 minuto
+        });
 
-        // Usa getLastKnownPositionAsync primeiro para evitar crash se o GPS estiver buscando sinal
-        let currentLoc = await Location.getLastKnownPositionAsync({});
+        // 2. Se não tiver cache, pede a posição com precisão BAIXA para ser rápido e não travar o Android (ANR)
         if (!currentLoc) {
-          currentLoc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
+          // Timeout de 8 segundos para não deixar o app pendurado esperando satélite
+          const locationPromise = Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Low, // Low usa Wi-Fi e Antenas (rápido), High usa GPS (lento e pode travar)
           });
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('GPS_TIMEOUT')), 8000)
+          );
+
+          currentLoc = await Promise.race([locationPromise, timeoutPromise]);
         }
         
         if (currentLoc) {
@@ -111,7 +120,15 @@ export default function App() {
           });
         }
       } catch (error) {
-        console.warn("Erro ao obter localização inicial:", error);
+        console.warn("Erro ao obter localização inicial (timeout ou falha):", error);
+        Alert.alert("Aviso de GPS", "Não foi possível obter sua localização exata rapidamente. Usando localização padrão.");
+        // Fallback para Muriaé-MG para o aplicativo ABRIR e o mapa carregar, destravando o usuário
+        setLocation({
+          latitude: -21.1306,
+          longitude: -42.3642,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
       }
     })();
 
