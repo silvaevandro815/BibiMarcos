@@ -57,6 +57,7 @@ export default function App() {
   const [destinationModalVisible, setDestinationModalVisible] = useState(false);
   const [rideSummaryVisible, setRideSummaryVisible] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const [pickupLocation, setPickupLocation] = useState(null);
   
   // Dummy data para o PIX do Motorista
   const motoristaPix = "123.456.789-00";
@@ -112,23 +113,26 @@ export default function App() {
         }
         
         if (currentLoc) {
-          setLocation({
+          const locObj = {
             latitude: currentLoc.coords.latitude,
             longitude: currentLoc.coords.longitude,
             latitudeDelta: 0.015,
             longitudeDelta: 0.015,
-          });
+          };
+          setLocation(locObj);
+          setPickupLocation(locObj);
         }
       } catch (error) {
         console.warn("Erro ao obter localização inicial (timeout ou falha):", error);
         Alert.alert("Aviso de GPS", "Não foi possível obter sua localização exata rapidamente. Usando localização padrão.");
-        // Fallback para Muriaé-MG para o aplicativo ABRIR e o mapa carregar, destravando o usuário
-        setLocation({
+        const fallbackLoc = {
           latitude: -21.1306,
           longitude: -42.3642,
           latitudeDelta: 0.05,
           longitudeDelta: 0.05,
-        });
+        };
+        setLocation(fallbackLoc);
+        setPickupLocation(fallbackLoc);
       }
     })();
 
@@ -271,10 +275,13 @@ export default function App() {
   };
 
   const fetchRoute = async (destLat, destLon) => {
-    if (!location) return;
+    // Usa a localização do pino móvel (pickupLocation) como partida, ou o GPS nativo
+    const startLocation = pickupLocation || location;
+    if (!startLocation) return;
+
     try {
-      const startLon = location.longitude;
-      const startLat = location.latitude;
+      const startLon = startLocation.longitude;
+      const startLat = startLocation.latitude;
       const url = `http://router.project-osrm.org/route/v1/driving/${startLon},${startLat};${destLon},${destLat}?overview=full&geometries=geojson`;
       
       const response = await fetch(url, {
@@ -319,6 +326,15 @@ export default function App() {
     setChatInput('');
   };
 
+  const onMapMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'location_changed') {
+        setPickupLocation({ latitude: data.lat, longitude: data.lng });
+      }
+    } catch(e) {}
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-slate-50">
       {/* Header Elegante BibiMarcos */}
@@ -340,11 +356,12 @@ export default function App() {
         </View>
       </View>
 
-      {/* Área do Mapa - Usando Leaflet (100% Open Source via WebView) para não depender do Google Maps e evitar Crash */}
+      {/* Área do Mapa - Usando Leaflet com Simulação Uber */}
       <View className="flex-1 relative bg-slate-200">
         {location ? (
           <WebView
             originWhitelist={['*']}
+            onMessage={onMapMessage}
             source={{
               html: `
                 <!DOCTYPE html>
@@ -356,60 +373,115 @@ export default function App() {
                   <style>
                     body { padding: 0; margin: 0; background-color: #e2e8f0; }
                     html, body, #map { height: 100%; width: 100%; }
-                    /* Customizando o marcador do usuário para ficar parecido com o original */
-                    .user-marker {
-                      background-color: #064e3b;
-                      border: 3px solid #34d399;
-                      border-radius: 50%;
-                      display: flex;
-                      justify-content: center;
-                      align-items: center;
-                      color: white;
-                      font-size: 18px;
-                      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+                    
+                    /* Pino móvel simulando Uber */
+                    .center-marker {
+                      position: absolute;
+                      top: 50%;
+                      left: 50%;
+                      transform: translate(-50%, -100%);
+                      font-size: 45px;
+                      z-index: 1000;
+                      pointer-events: none;
+                      text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+                      transition: transform 0.2s ease-out;
                     }
+                    .center-marker.moving {
+                      transform: translate(-50%, -120%);
+                    }
+
+                    /* Balãozinho do Pino */
+                    .pickup-label {
+                      position: absolute;
+                      top: calc(50% - 60px);
+                      left: 50%;
+                      transform: translateX(-50%);
+                      background: #064e3b;
+                      color: white;
+                      padding: 6px 14px;
+                      border-radius: 20px;
+                      font-family: sans-serif;
+                      font-weight: bold;
+                      font-size: 14px;
+                      z-index: 1000;
+                      pointer-events: none;
+                      white-space: nowrap;
+                      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                      transition: opacity 0.2s;
+                    }
+                    .center-marker.moving + .pickup-label {
+                      opacity: 0;
+                    }
+                    
+                    /* Oculta o Leaflet logo */
+                    .leaflet-control-container .leaflet-bottom.leaflet-right { display: none; }
                   </style>
                 </head>
                 <body>
                   <div id="map"></div>
+                  <!-- O pino fica flutuando exatamente no centro -->
+                  <div id="centerMarker" class="center-marker">📍</div>
+                  <div class="pickup-label">Local de Embarque</div>
+
                   <script>
-                    // Inicializa o mapa com Carto Voyager (OpenStreetMap estilizado)
-                    var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${location.latitude}, ${location.longitude}], 15);
-                    L.tileLayer('https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
-                      maxZoom: 19
-                    }).addTo(map);
+                    var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${location.latitude}, ${location.longitude}], 16);
+                    L.tileLayer('https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-                    // Ícone customizado do Usuário
-                    var userIcon = L.divIcon({
-                      className: 'user-marker',
-                      html: '📍',
-                      iconSize: [40, 40],
-                      iconAnchor: [20, 20]
+                    // Eventos do mapa para fazer o pino "pular" (efeito Uber) e reportar a nova coordenada
+                    var markerEl = document.getElementById('centerMarker');
+                    var labelEl = document.querySelector('.pickup-label');
+                    
+                    map.on('movestart', function() { 
+                      markerEl.classList.add('moving'); 
                     });
-                    L.marker([${location.latitude}, ${location.longitude}], {icon: userIcon}).addTo(map);
+                    
+                    map.on('moveend', function() { 
+                      markerEl.classList.remove('moving');
+                      var center = map.getCenter();
+                      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'location_changed', lat: center.lat, lng: center.lng }));
+                    });
 
-                    // Desenhando a Rota do OSRM se existir
+                    // Desenhando a Rota se existir
                     var routePoints = ${JSON.stringify(routeCoordinates.map(c => [c.latitude, c.longitude]))};
                     if (routePoints.length > 0) {
                       var polyline = L.polyline(routePoints, {color: '#10b981', weight: 6, lineCap: 'round'}).addTo(map);
                       map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+                      
+                      // Esconde o pino móvel durante a corrida
+                      markerEl.style.display = 'none';
+                      labelEl.style.display = 'none';
+                      
+                      // Marca o ponto exato de partida escolhido pelo usuário
+                      var pickupIcon = L.divIcon({
+                        className: '',
+                        html: '<div style="background-color: #064e3b; border: 3px solid #34d399; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.5);"></div>',
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                      });
+                      L.marker(routePoints[0], {icon: pickupIcon}).addTo(map);
                     }
 
-                    // Marcadores dos Motoristas (Carros)
-                    var drivers = ${JSON.stringify(drivers)};
+                    // Simulador Animado de Carros para Apresentação
                     var carIcon = L.icon({
                       iconUrl: 'https://cdn-icons-png.flaticon.com/512/3204/3204905.png',
-                      iconSize: [45, 45],
-                      iconAnchor: [22, 22]
+                      iconSize: [40, 40],
+                      iconAnchor: [20, 20]
                     });
-                    drivers.forEach(function(driver) {
-                      L.marker([driver.latitude, driver.longitude], {icon: carIcon}).addTo(map);
+                    
+                    var drivers = ${JSON.stringify(drivers)};
+                    var driverMarkers = drivers.map(function(driver) {
+                      return L.marker([driver.latitude, driver.longitude], {icon: carIcon}).addTo(map);
                     });
 
-                    // Força o mapa a recarregar quando o tamanho do container mudar
-                    window.addEventListener('resize', function() {
-                      map.invalidateSize();
-                    });
+                    // Animação fluida e aleatória dos carrinhos no mapa a cada 2 segundos
+                    setInterval(function() {
+                      driverMarkers.forEach(function(m) {
+                        var pos = m.getLatLng();
+                        var newLat = pos.lat + (Math.random() - 0.5) * 0.0003;
+                        var newLng = pos.lng + (Math.random() - 0.5) * 0.0003;
+                        m.setLatLng([newLat, newLng]);
+                      });
+                    }, 2000);
                   </script>
                 </body>
                 </html>
@@ -424,48 +496,53 @@ export default function App() {
           </View>
         )}
 
-        {/* Botão Flutuante do Passageiro */}
+        {/* Painel Inferior Estilo Uber */}
         {!isDriverOnline && (
-          <View className="absolute bottom-10 left-6 right-6">
-            <TouchableOpacity
-              className="bg-emerald-700 py-4 rounded-xl shadow-xl border border-emerald-600 elevation-5"
-              onPress={() => setDestinationModalVisible(true)}
-            >
-              <Text className="text-white text-lg font-bold text-center uppercase tracking-widest">
-                Solicitar Viagem
-              </Text>
-            </TouchableOpacity>
+          <View className="absolute bottom-0 w-full bg-white rounded-t-[30px] pt-6 pb-10 px-6 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] elevation-20">
+            {routeCoordinates.length === 0 ? (
+              <>
+                <Text className="text-2xl font-black text-slate-800 mb-4 tracking-tight">Para onde vamos?</Text>
+                <TouchableOpacity 
+                  className="bg-slate-100 flex-row items-center p-4 rounded-2xl border border-slate-200 active:bg-slate-200"
+                  onPress={() => setDestinationModalVisible(true)}
+                >
+                  <View className="bg-emerald-100 p-2 rounded-full mr-3">
+                    <Text className="text-xl">🔍</Text>
+                  </View>
+                  <Text className="text-slate-500 font-bold text-lg flex-1">Buscar destino...</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+               <TouchableOpacity
+                className="bg-yellow-500 py-4 rounded-xl shadow-xl elevation-5 flex-row justify-center items-center"
+                onPress={() => {
+                  setRouteCoordinates([]);
+                  setRideSummaryVisible(true);
+                }}
+              >
+                <Text className="text-emerald-900 text-xl font-bold text-center uppercase tracking-widest mr-2">
+                  Finalizar Viagem
+                </Text>
+                <Text className="text-2xl">🏁</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
-        {/* Botão de Finalizar Viagem */}
-        {routeCoordinates.length > 0 && !isDriverOnline && (
-          <View className="absolute bottom-28 left-6 right-6">
-            <TouchableOpacity
-              className="bg-yellow-500 py-4 rounded-xl shadow-xl border border-yellow-600 elevation-5"
-              onPress={() => {
-                setRouteCoordinates([]);
-                setRideSummaryVisible(true);
-              }}
-            >
-              <Text className="text-emerald-900 text-lg font-bold text-center uppercase tracking-widest">
-                Finalizar Viagem
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Botão de Chat flutuante */}
-        {routeCoordinates.length > 0 && (
-          <View className="absolute top-10 right-4">
-            <TouchableOpacity
-              className="bg-emerald-600 w-14 h-14 rounded-full justify-center items-center shadow-lg border-2 border-white"
-              onPress={() => setChatVisible(true)}
-            >
-              <Text className="text-white text-2xl">💬</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Botão de Chat flutuante (Sempre visível para Demo) */}
+        <View className={`absolute right-4 ${isDriverOnline ? 'bottom-10' : 'bottom-48'}`}>
+          <TouchableOpacity
+            className="bg-emerald-800 w-16 h-16 rounded-full justify-center items-center shadow-2xl elevation-10 border-4 border-white"
+            onPress={() => setChatVisible(true)}
+          >
+            <Text className="text-white text-3xl drop-shadow-md">💬</Text>
+            {chatMessages.length > 0 && (
+              <View className="absolute -top-1 -right-1 bg-red-500 w-6 h-6 rounded-full justify-center items-center border-2 border-white">
+                <Text className="text-white text-xs font-black">{chatMessages.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Modal de Solicitação (Busca de Destino) */}
