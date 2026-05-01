@@ -578,28 +578,12 @@ export default function App() {
                     // Imagem car3d.png convertida em base64 garantida para renderizar em qualquer Android
                     var carSrc = 'data:image/png;base64,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';
 
-                    // Rotas realistas baseadas nas principais vias de Muriaé-MG
+                    // Rotas perfeitamente traçadas nas ruas de Muriaé (OSRM GeoJSON - [lng, lat])
                     var routes = [
-                      [ // Av. Maestro Heitor Villa Lobos (N-S)
-                        [-21.1200, -42.3642], [-21.1240, -42.3637],
-                        [-21.1280, -42.3635], [-21.1306, -42.3640],
-                        [-21.1340, -42.3645], [-21.1380, -42.3648]
-                      ],
-                      [ // Rua Coronel Vieira (E-W)
-                        [-21.1305, -42.3500], [-21.1308, -42.3555],
-                        [-21.1310, -42.3600], [-21.1306, -42.3642],
-                        [-21.1305, -42.3690], [-21.1303, -42.3740]
-                      ],
-                      [ // Diagonal NW -> SE (Av. Expedicionários)
-                        [-21.1240, -42.3580], [-21.1262, -42.3602],
-                        [-21.1284, -42.3622], [-21.1306, -42.3642],
-                        [-21.1328, -42.3662], [-21.1350, -42.3684]
-                      ],
-                      [ // Diagonal NE -> SW (Rua 7 de Setembro)
-                        [-21.1240, -42.3720], [-21.1263, -42.3695],
-                        [-21.1285, -42.3668], [-21.1306, -42.3642],
-                        [-21.1328, -42.3616], [-21.1350, -42.3590]
-                      ]
+                      [[-42.364141,-21.130599],[-42.364157,-21.129504],[-42.363756,-21.129676],[-42.363719,-21.12969],[-42.363719,-21.129626],[-42.363716,-21.129265],[-42.363716,-21.129221],[-42.363685,-21.129136],[-42.363647,-21.129022],[-42.36362,-21.128952],[-42.363586,-21.128912],[-42.363527,-21.12886],[-42.363421,-21.128785],[-42.3632,-21.128744],[-42.363081,-21.128736],[-42.362974,-21.128734],[-42.362924,-21.128707],[-42.362897,-21.128673],[-42.362884,-21.128633],[-42.362883,-21.128561],[-42.362892,-21.128516],[-42.363073,-21.12846],[-42.363458,-21.128361],[-42.363646,-21.128099],[-42.363857,-21.127806],[-42.363875,-21.127749],[-42.363892,-21.127671],[-42.363901,-21.127588],[-42.363903,-21.127508],[-42.363898,-21.127424],[-42.363888,-21.127392],[-42.363864,-21.127339],[-42.363829,-21.127292],[-42.363768,-21.127257],[-42.363664,-21.127229],[-42.363448,-21.127227],[-42.363315,-21.127227],[-42.36317,-21.127228],[-42.362715,-21.127233],[-42.362623,-21.127227],[-42.362588,-21.127217],[-42.362552,-21.127205],[-42.362509,-21.127176],[-42.362493,-21.127165],[-42.362479,-21.127145],[-42.362465,-21.127125],[-42.362775,-21.126842],[-42.363484,-21.126243],[-42.363482,-21.126183],[-42.363472,-21.125655],[-42.363472,-21.125265],[-42.363427,-21.124851],[-42.363379,-21.124399],[-42.363509,-21.124182],[-42.363575,-21.124099],[-42.363698,-21.124025],[-42.364697,-21.123439],[-42.364734,-21.123158],[-42.36468,-21.123056],[-42.36454,-21.122842],[-42.364424,-21.12275],[-42.364187,-21.122465],[-42.363865,-21.122657],[-42.363294,-21.123039],[-42.363115,-21.123136],[-42.363038,-21.12315],[-42.362938,-21.123141],[-42.362431,-21.122973]],
+                      [[-42.364141,-21.130599],[-42.364137,-21.130911],[-42.364579,-21.130911],[-42.365187,-21.130916],[-42.365564,-21.130914],[-42.36577,-21.130913],[-42.365886,-21.131004],[-42.366774,-21.130979],[-42.366776,-21.131256],[-42.366641,-21.131264],[-42.366609,-21.131303],[-42.366598,-21.13134],[-42.366597,-21.131417],[-42.366606,-21.131511],[-42.366316,-21.132035],[-42.366205,-21.132237],[-42.366098,-21.132529],[-42.366056,-21.132642],[-42.365976,-21.132855],[-42.365954,-21.132919],[-42.365927,-21.133076],[-42.365811,-21.133532],[-42.366653,-21.133723],[-42.366776,-21.133768],[-42.366745,-21.133887],[-42.367588,-21.134131],[-42.367638,-21.134547],[-42.367561,-21.134676],[-42.367533,-21.134736],[-42.368037,-21.134946],[-42.368091,-21.135013],[-42.368217,-21.135401],[-42.368273,-21.135439],[-42.368739,-21.135613],[-42.368492,-21.13611],[-42.368352,-21.136448],[-42.368315,-21.136605],[-42.368317,-21.136698],[-42.368349,-21.136857],[-42.368355,-21.136888],[-42.368489,-21.137466],[-42.3685,-21.137701],[-42.368473,-21.138224],[-42.368466,-21.138382],[-42.368448,-21.138805]],
+                      [[-42.364141,-21.130599],[-42.364157,-21.129504],[-42.363756,-21.129676],[-42.363719,-21.12969],[-42.363684,-21.129702],[-42.363137,-21.129877],[-42.36195,-21.130161],[-42.360917,-21.13038],[-42.360603,-21.130438],[-42.360446,-21.130465],[-42.359951,-21.130454],[-42.35935,-21.130418],[-42.359021,-21.130359],[-42.35886,-21.13031],[-42.358644,-21.130226],[-42.358444,-21.130106],[-42.358314,-21.130002],[-42.357579,-21.129263],[-42.35742,-21.129094],[-42.357395,-21.129078],[-42.35734,-21.129064],[-42.3573,-21.129062],[-42.357239,-21.129067],[-42.356271,-21.127694],[-42.355919,-21.12746],[-42.355854,-21.127427],[-42.355766,-21.127402],[-42.355646,-21.127383],[-42.355595,-21.12738],[-42.355572,-21.127381],[-42.355546,-21.127458],[-42.355536,-21.127474],[-42.355522,-21.127486],[-42.355495,-21.127496],[-42.355569,-21.127856],[-42.355017,-21.127905],[-42.354948,-21.127921],[-42.354894,-21.127943],[-42.354809,-21.127987],[-42.35489,-21.128136],[-42.355031,-21.12838],[-42.355166,-21.128661],[-42.355172,-21.128674]],
+                      [[-42.368448,-21.138805],[-42.368466,-21.138382],[-42.368473,-21.138224],[-42.3685,-21.137701],[-42.368489,-21.137466],[-42.368355,-21.136888],[-42.368349,-21.136857],[-42.368317,-21.136698],[-42.368315,-21.136605],[-42.368352,-21.136448],[-42.368492,-21.13611],[-42.368739,-21.135613],[-42.368273,-21.135439],[-42.368217,-21.135401],[-42.368091,-21.135013],[-42.368037,-21.134946],[-42.367533,-21.134736],[-42.367561,-21.134676],[-42.367638,-21.134547],[-42.367588,-21.134131],[-42.366745,-21.133887],[-42.366776,-21.133768],[-42.366653,-21.133723],[-42.365811,-21.133532],[-42.365927,-21.133076],[-42.365954,-21.132919],[-42.365976,-21.132855],[-42.366056,-21.132642],[-42.366098,-21.132529],[-42.366205,-21.132237],[-42.366316,-21.132035],[-42.366606,-21.131511],[-42.366597,-21.131417],[-42.366598,-21.13134],[-42.366609,-21.131303],[-42.366641,-21.131264],[-42.366776,-21.131256],[-42.366774,-21.130979],[-42.365886,-21.131004],[-42.36577,-21.130913],[-42.365564,-21.130914],[-42.365187,-21.130916],[-42.364579,-21.130911],[-42.364137,-21.130911],[-42.364141,-21.130599]]
                     ];
 
                     // Estado de cada carro: rota, waypoint atual, progresso (0-1) e direção
@@ -613,8 +597,9 @@ export default function App() {
                       var r = state.route;
                       var i = state.idx;
                       var next = Math.min(i + 1, r.length - 1);
-                      return [lerp(r[i][0], r[next][0], state.t),
-                              lerp(r[i][1], r[next][1], state.t)];
+                      // Inverte o indice 0 e 1 pois o OSRM retorna [lng, lat] e o Leaflet usa [lat, lng]
+                      return [lerp(r[i][1], r[next][1], state.t),
+                              lerp(r[i][0], r[next][0], state.t)];
                     }
 
                     // Função que determina o tamanho do ícone baseado no zoom atual
@@ -632,15 +617,16 @@ export default function App() {
                       var i = state ? state.idx : 0;
                       var angle = 0;
                       if (r && i < r.length - 1) {
-                        var dy = r[i+1][0] - r[i][0];
-                        var dx = r[i+1][1] - r[i][1];
+                        // Como invertemos lat/lng, dx e dy usam os índices corretos
+                        var dlng = r[i+1][0] - r[i][0];
+                        var dlat = r[i+1][1] - r[i][1];
                         // Convertendo de lat/lng math para graus CSS
-                        angle = Math.atan2(dx, dy) * (180 / Math.PI);
+                        angle = Math.atan2(dlng, dlat) * (180 / Math.PI);
                       }
 
                       return L.divIcon({
                         className: '',
-                        html: '<img src="' + carSrc + '" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain;filter:drop-shadow(0 4px 6px rgba(0,0,0,0.6)); transform: rotate(' + angle + 'deg); transition: transform 0.3s;"/>',
+                        html: '<img src="' + carSrc + '" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain;filter:drop-shadow(0 4px 6px rgba(0,0,0,0.6)); transform: rotate(' + angle + 'deg); transition: transform 0.1s;"/>',
                         iconSize: [size, size],
                         iconAnchor: [size/2, size/2]
                       });
@@ -663,10 +649,17 @@ export default function App() {
 
                     map.on('zoomend', updateIcons);
 
-                    // Motor de animação suave: avance por lerp a cada 80ms (~12 FPS)
-                    var SPEED = 0.012; // progresso por tick (1 = segmento completo)
+                    // Motor de animação suave: avance por lerp a cada 50ms (~20 FPS)
+                    // SPEED agora é dinamico dependendo da distancia real para manter uma velocidade "constante" do carro
                     setInterval(function() {
                       carStates.forEach(function(state, i) {
+                        var r = state.route;
+                        var next = Math.min(state.idx + 1, r.length - 1);
+                        var dist = Math.sqrt(Math.pow(r[next][0] - r[state.idx][0], 2) + Math.pow(r[next][1] - r[state.idx][1], 2));
+                        
+                        // Ajusta a velocidade baseada na distancia do trecho (quanto menor a distancia, maior o avanço de "t" pra manter a mesma velocidade real em KM/H)
+                        var SPEED = dist === 0 ? 1 : 0.00003 / dist; 
+
                         state.t += SPEED;
                         if (state.t >= 1) {
                           state.t = 0;
@@ -687,12 +680,12 @@ export default function App() {
                             dirChanged = true;
                           }
                           
-                          if (dirChanged) updateIcons();
+                          if (dirChanged || state.t === 0) updateIcons();
                         }
                         var pos = getCarPos(state);
                         driverMarkers[i].setLatLng(pos);
                       });
-                    }, 80);
+                    }, 50);
                   </script>
                 </body>
                 </html>
