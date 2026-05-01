@@ -48,15 +48,6 @@
       },
       "edgeToEdgeEnabled": false,
       "package": "com.bibimarcos.bibimarcosapp",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDummyKeyForOpenStreetMapToNotCrash123"
-        },
-        "foregroundService": {
-          "notificationTitle": "BibiMarcos Online",
-          "notificationDotColor": "#10b981"
-        }
-      },
       "permissions": [
         "INTERNET",
         "RECEIVE_BOOT_COMPLETED",
