@@ -16,6 +16,7 @@ import { WebView } from 'react-native-webview';
 import QRCode from 'react-native-qrcode-svg';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { Asset } from 'expo-asset';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 // A URL agora é configurada por variáveis de ambiente ou aponta localmente por padrão
@@ -76,6 +77,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const ws = useRef(null);
   const webViewRef = useRef(null);
+  const [carImageBase64, setCarImageBase64] = useState(null);
 
   // Drivers iniciam com coordenadas de placeholder;
   // serão atualizadas para perto do usuário assim que o GPS carregar
@@ -89,6 +91,21 @@ export default function App() {
   const locationSubscription = useRef(null);
 
   useEffect(() => {
+    // Carregar imagem do carro como base64 para usar no Leaflet
+    const loadCarImage = async () => {
+      try {
+        const asset = Asset.fromModule(require('./assets/car3d.png'));
+        await asset.downloadAsync();
+        const b64 = await FileSystem.readAsStringAsync(asset.localUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        setCarImageBase64(b64);
+      } catch (e) {
+        console.warn('Erro ao carregar car3d.png:', e);
+      }
+    };
+    loadCarImage();
+
     // Som de Partida de Carro via FileSystem (garantido no Android 14)
     const playEngineSound = async () => {
       try {
@@ -570,39 +587,115 @@ export default function App() {
                       L.marker(routePoints[0], {icon: pickupIcon}).addTo(map);
                     }
 
-                    // Simulador Avançado de Carros (Apresentação do App)
-                    // Usando DivIcon puro garantido para não depender de imagens externas (evita erros 403 Forbidden)
-                    var carIcon = L.divIcon({
-                      className: 'custom-car-marker',
-                      html: '<div style="background-color: #10b981; border: 2px solid white; border-radius: 8px; width: 34px; height: 34px; display: flex; justify-content: center; align-items: center; box-shadow: 0 3px 6px rgba(0,0,0,0.4); font-size: 20px;">🚘</div>',
-                      iconSize: [34, 34],
-                      iconAnchor: [17, 17]
-                    });
-                    
-                    var drivers = ${JSON.stringify(drivers)};
-                    var driverMarkers = drivers.map(function(driver) {
-                      // Atribui uma direção e velocidade fixa para cada carro
-                      return {
-                        marker: L.marker([driver.latitude, driver.longitude], {icon: carIcon}).addTo(map),
-                        latSpeed: (Math.random() - 0.5) * 0.00005, // Menos tremor, mais direção
-                        lngSpeed: (Math.random() - 0.5) * 0.00005
-                      };
+                    // ==========================================
+                    // MOTOR DE CARROS COM ROTAS REAIS DE MURIAE
+                    // Interpolacão linear entre waypoints de ruas
+                    // ==========================================
+                    var carSrc = 'data:image/png;base64,${carImageBase64 || ''}';
+
+                    // Rotas realistas baseadas nas principais vias de Muriaé-MG
+                    var routes = [
+                      [ // Av. Maestro Heitor Villa Lobos (N-S)
+                        [-21.1200, -42.3642], [-21.1240, -42.3637],
+                        [-21.1280, -42.3635], [-21.1306, -42.3640],
+                        [-21.1340, -42.3645], [-21.1380, -42.3648]
+                      ],
+                      [ // Rua Coronel Vieira (E-W)
+                        [-21.1305, -42.3500], [-21.1308, -42.3555],
+                        [-21.1310, -42.3600], [-21.1306, -42.3642],
+                        [-21.1305, -42.3690], [-21.1303, -42.3740]
+                      ],
+                      [ // Diagonal NW -> SE (Av. Expedicionários)
+                        [-21.1240, -42.3580], [-21.1262, -42.3602],
+                        [-21.1284, -42.3622], [-21.1306, -42.3642],
+                        [-21.1328, -42.3662], [-21.1350, -42.3684]
+                      ],
+                      [ // Diagonal NE -> SW (Rua 7 de Setembro)
+                        [-21.1240, -42.3720], [-21.1263, -42.3695],
+                        [-21.1285, -42.3668], [-21.1306, -42.3642],
+                        [-21.1328, -42.3616], [-21.1350, -42.3590]
+                      ]
+                    ];
+
+                    // Estado de cada carro: rota, waypoint atual, progresso (0-1) e direção
+                    var carStates = routes.map(function(route) {
+                      return { route: route, idx: 0, t: Math.random(), dir: 1 };
                     });
 
-                    // Animação fluida dos carrinhos (30 FPS simulados)
-                    setInterval(function() {
-                      driverMarkers.forEach(function(d) {
-                        var pos = d.marker.getLatLng();
-                        var newLat = pos.lat + d.latSpeed;
-                        var newLng = pos.lng + d.lngSpeed;
-                        
-                        // Fazer o carro virar se distanciar muito do centro
-                        if (Math.abs(newLat - ${location.latitude}) > 0.01) d.latSpeed *= -1;
-                        if (Math.abs(newLng - ${location.longitude}) > 0.01) d.lngSpeed *= -1;
-                        
-                        d.marker.setLatLng([newLat, newLng]);
+                    function lerp(a, b, t) { return a + (b - a) * t; }
+
+                    function getCarPos(state) {
+                      var r = state.route;
+                      var i = state.idx;
+                      var next = Math.min(i + 1, r.length - 1);
+                      return [lerp(r[i][0], r[next][0], state.t),
+                              lerp(r[i][1], r[next][1], state.t)];
+                    }
+
+                    // Função que determina o tamanho do ícone baseado no zoom atual
+                    function getIconSize() {
+                      var z = map.getZoom();
+                      if (z <= 13) return 22;
+                      if (z <= 15) return 32;
+                      if (z <= 17) return 44;
+                      return 54;
+                    }
+
+                    function makeCarIcon(size) {
+                      if (carSrc.length > 30) {
+                        return L.divIcon({
+                          className: '',
+                          html: '<img src="' + carSrc + '" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));"/>',
+                          iconSize: [size, size],
+                          iconAnchor: [size/2, size/2]
+                        });
+                      } else {
+                        // Fallback se a imagem não carregar
+                        return L.divIcon({
+                          className: '',
+                          html: '<div style="background:#10b981;border:2px solid white;border-radius:8px;width:' + size + 'px;height:' + size + 'px;display:flex;align-items:center;justify-content:center;font-size:' + (size * 0.55) + 'px;box-shadow:0 3px 6px rgba(0,0,0,0.4)">🚗</div>',
+                          iconSize: [size, size],
+                          iconAnchor: [size/2, size/2]
+                        });
+                      }
+                    }
+
+                    // Cria marcadores na posição inicial de cada rota
+                    var initSize = getIconSize();
+                    var driverMarkers = carStates.map(function(state) {
+                      var pos = getCarPos(state);
+                      return L.marker(pos, { icon: makeCarIcon(initSize) }).addTo(map);
+                    });
+
+                    // Atualiza tamanho dos ícones quando o usuário faz zoom
+                    map.on('zoomend', function() {
+                      var sz = getIconSize();
+                      driverMarkers.forEach(function(m) {
+                        m.setIcon(makeCarIcon(sz));
                       });
-                    }, 50);
+                    });
+
+                    // Motor de animação suave: avance por lerp a cada 80ms (~12 FPS)
+                    var SPEED = 0.012; // progresso por tick (1 = segmento completo)
+                    setInterval(function() {
+                      carStates.forEach(function(state, i) {
+                        state.t += SPEED;
+                        if (state.t >= 1) {
+                          state.t = 0;
+                          state.idx += state.dir;
+                          // Invertendo a direção nos extremos
+                          if (state.idx >= state.route.length - 1) {
+                            state.idx = state.route.length - 2;
+                            state.dir = -1;
+                          } else if (state.idx < 0) {
+                            state.idx = 0;
+                            state.dir = 1;
+                          }
+                        }
+                        var pos = getCarPos(state);
+                        driverMarkers[i].setLatLng(pos);
+                      });
+                    }, 80);
                   </script>
                 </body>
                 </html>

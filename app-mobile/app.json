@@ -39,7 +39,8 @@
         {
           "foregroundServiceType": "location"
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "android": {
       "adaptiveIcon": {
