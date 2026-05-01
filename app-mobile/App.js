@@ -91,21 +91,6 @@ export default function App() {
   const locationSubscription = useRef(null);
 
   useEffect(() => {
-    // Carregar imagem do carro como base64 para usar no Leaflet
-    const loadCarImage = async () => {
-      try {
-        const asset = Asset.fromModule(require('./assets/car3d.png'));
-        await asset.downloadAsync();
-        const b64 = await FileSystem.readAsStringAsync(asset.localUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        setCarImageBase64(b64);
-      } catch (e) {
-        console.warn('Erro ao carregar car3d.png:', e);
-      }
-    };
-    loadCarImage();
-
     // Som de Partida de Carro via FileSystem (garantido no Android 14)
     const playEngineSound = async () => {
       try {
@@ -589,9 +574,9 @@ export default function App() {
 
                     // ==========================================
                     // MOTOR DE CARROS COM ROTAS REAIS DE MURIAE
-                    // Interpolacão linear entre waypoints de ruas
                     // ==========================================
-                    var carSrc = 'data:image/png;base64,${carImageBase64 || ''}';
+                    // Imagem car3d.png convertida em base64 garantida para renderizar em qualquer Android
+                    var carSrc = 'data:image/png;base64,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';
 
                     // Rotas realistas baseadas nas principais vias de Muriaé-MG
                     var routes = [
@@ -635,45 +620,48 @@ export default function App() {
                     // Função que determina o tamanho do ícone baseado no zoom atual
                     function getIconSize() {
                       var z = map.getZoom();
-                      if (z <= 13) return 22;
-                      if (z <= 15) return 32;
-                      if (z <= 17) return 44;
-                      return 54;
+                      if (z <= 13) return 28;
+                      if (z <= 15) return 40;
+                      if (z <= 17) return 56;
+                      return 70;
                     }
 
-                    function makeCarIcon(size) {
-                      if (carSrc.length > 30) {
-                        return L.divIcon({
-                          className: '',
-                          html: '<img src="' + carSrc + '" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));"/>',
-                          iconSize: [size, size],
-                          iconAnchor: [size/2, size/2]
-                        });
-                      } else {
-                        // Fallback se a imagem não carregar
-                        return L.divIcon({
-                          className: '',
-                          html: '<div style="background:#10b981;border:2px solid white;border-radius:8px;width:' + size + 'px;height:' + size + 'px;display:flex;align-items:center;justify-content:center;font-size:' + (size * 0.55) + 'px;box-shadow:0 3px 6px rgba(0,0,0,0.4)">🚗</div>',
-                          iconSize: [size, size],
-                          iconAnchor: [size/2, size/2]
-                        });
+                    function makeCarIcon(size, state) {
+                      // Calcula o angulo baseado na rota (se move de r[idx] para r[next])
+                      var r = state ? state.route : null;
+                      var i = state ? state.idx : 0;
+                      var angle = 0;
+                      if (r && i < r.length - 1) {
+                        var dy = r[i+1][0] - r[i][0];
+                        var dx = r[i+1][1] - r[i][1];
+                        // Convertendo de lat/lng math para graus CSS
+                        angle = Math.atan2(dx, dy) * (180 / Math.PI);
                       }
+
+                      return L.divIcon({
+                        className: '',
+                        html: '<img src="' + carSrc + '" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain;filter:drop-shadow(0 4px 6px rgba(0,0,0,0.6)); transform: rotate(' + angle + 'deg); transition: transform 0.3s;"/>',
+                        iconSize: [size, size],
+                        iconAnchor: [size/2, size/2]
+                      });
                     }
 
                     // Cria marcadores na posição inicial de cada rota
                     var initSize = getIconSize();
                     var driverMarkers = carStates.map(function(state) {
                       var pos = getCarPos(state);
-                      return L.marker(pos, { icon: makeCarIcon(initSize) }).addTo(map);
+                      return L.marker(pos, { icon: makeCarIcon(initSize, state) }).addTo(map);
                     });
 
-                    // Atualiza tamanho dos ícones quando o usuário faz zoom
-                    map.on('zoomend', function() {
+                    // Atualiza tamanho e angulo dos ícones quando o usuário faz zoom ou o carro muda de direção
+                    function updateIcons() {
                       var sz = getIconSize();
-                      driverMarkers.forEach(function(m) {
-                        m.setIcon(makeCarIcon(sz));
+                      driverMarkers.forEach(function(m, i) {
+                        m.setIcon(makeCarIcon(sz, carStates[i]));
                       });
-                    });
+                    }
+
+                    map.on('zoomend', updateIcons);
 
                     // Motor de animação suave: avance por lerp a cada 80ms (~12 FPS)
                     var SPEED = 0.012; // progresso por tick (1 = segmento completo)
@@ -683,14 +671,23 @@ export default function App() {
                         if (state.t >= 1) {
                           state.t = 0;
                           state.idx += state.dir;
-                          // Invertendo a direção nos extremos
+                          
+                          // Verifica se chegou ao fim da rua para retornar
+                          var dirChanged = false;
                           if (state.idx >= state.route.length - 1) {
                             state.idx = state.route.length - 2;
                             state.dir = -1;
+                            // Inverte a rota para o carro olhar pra direção certa na volta
+                            state.route = state.route.slice().reverse();
+                            state.idx = 0;
+                            dirChanged = true;
                           } else if (state.idx < 0) {
                             state.idx = 0;
                             state.dir = 1;
+                            dirChanged = true;
                           }
+                          
+                          if (dirChanged) updateIcons();
                         }
                         var pos = getCarPos(state);
                         driverMarkers[i].setLatLng(pos);
