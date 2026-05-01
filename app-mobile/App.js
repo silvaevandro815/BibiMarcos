@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import QRCode from 'react-native-qrcode-svg';
+import { Audio } from 'expo-av';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 // A URL agora é configurada por variáveis de ambiente ou aponta localmente por padrão
@@ -83,6 +84,21 @@ export default function App() {
   const locationSubscription = useRef(null);
 
   useEffect(() => {
+    // Tocar Som de Partida de Carro
+    const playEngineSound = async () => {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_3d1e67eeef.mp3?filename=car-engine-starting-43639.mp3' },
+          { shouldPlay: true }
+        );
+        // O som tocará automaticamente.
+        await sound.playAsync();
+      } catch (err) {
+        console.warn("Erro ao tocar o som da engine:", err);
+      }
+    };
+    playEngineSound();
+
     (async () => {
       try {
         let { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
@@ -507,7 +523,7 @@ export default function App() {
                       L.marker(routePoints[0], {icon: pickupIcon}).addTo(map);
                     }
 
-                    // Simulador Animado de Carros para Apresentação
+                    // Simulador Avançado de Carros (Apresentação do App)
                     var carIcon = L.icon({
                       iconUrl: 'https://cdn-icons-png.flaticon.com/512/3204/3204905.png',
                       iconSize: [40, 40],
@@ -516,18 +532,28 @@ export default function App() {
                     
                     var drivers = ${JSON.stringify(drivers)};
                     var driverMarkers = drivers.map(function(driver) {
-                      return L.marker([driver.latitude, driver.longitude], {icon: carIcon}).addTo(map);
+                      // Atribui uma direção e velocidade fixa para cada carro
+                      return {
+                        marker: L.marker([driver.latitude, driver.longitude], {icon: carIcon}).addTo(map),
+                        latSpeed: (Math.random() - 0.5) * 0.00005, // Menos tremor, mais direção
+                        lngSpeed: (Math.random() - 0.5) * 0.00005
+                      };
                     });
 
-                    // Animação fluida e aleatória dos carrinhos no mapa a cada 2 segundos
+                    // Animação fluida dos carrinhos (30 FPS simulados)
                     setInterval(function() {
-                      driverMarkers.forEach(function(m) {
-                        var pos = m.getLatLng();
-                        var newLat = pos.lat + (Math.random() - 0.5) * 0.0003;
-                        var newLng = pos.lng + (Math.random() - 0.5) * 0.0003;
-                        m.setLatLng([newLat, newLng]);
+                      driverMarkers.forEach(function(d) {
+                        var pos = d.marker.getLatLng();
+                        var newLat = pos.lat + d.latSpeed;
+                        var newLng = pos.lng + d.lngSpeed;
+                        
+                        // Fazer o carro virar se distanciar muito do centro
+                        if (Math.abs(newLat - ${location.latitude}) > 0.01) d.latSpeed *= -1;
+                        if (Math.abs(newLng - ${location.longitude}) > 0.01) d.lngSpeed *= -1;
+                        
+                        d.marker.setLatLng([newLat, newLng]);
                       });
-                    }, 2000);
+                    }, 50);
                   </script>
                 </body>
                 </html>
