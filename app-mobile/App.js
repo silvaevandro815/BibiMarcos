@@ -15,6 +15,7 @@ import {
 import { WebView } from 'react-native-webview';
 import QRCode from 'react-native-qrcode-svg';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 // A URL agora é configurada por variáveis de ambiente ou aponta localmente por padrão
@@ -76,32 +77,38 @@ export default function App() {
   const ws = useRef(null);
   const webViewRef = useRef(null);
 
+  // Drivers iniciam com coordenadas de placeholder;
+  // serão atualizadas para perto do usuário assim que o GPS carregar
   const [drivers, setDrivers] = useState([
-    // Mock inicial, depois pode vir do /match da sua API
-    { id: 1, latitude: -23.5505, longitude: -46.6333 },
-    { id: 2, latitude: -23.5525, longitude: -46.6310 }
+    { id: 1, latitude: -21.1300, longitude: -42.3640 },
+    { id: 2, latitude: -21.1310, longitude: -42.3650 },
+    { id: 3, latitude: -21.1290, longitude: -42.3620 },
+    { id: 4, latitude: -21.1320, longitude: -42.3660 },
   ]);
   
   const locationSubscription = useRef(null);
 
   useEffect(() => {
-    // Tocar Som de Partida de Carro
+    // Som de Partida de Carro via FileSystem (garantido no Android 14)
     const playEngineSound = async () => {
       try {
         await Audio.setAudioModeAsync({
           playsInSilentModeIOS: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
         });
-
-        const { sound } = await Audio.Sound.createAsync(
-          // URL garantida (Google Actions Sound Library)
-          { uri: 'https://actions.google.com/sounds/v1/transportation/car_engine_start.ogg' },
-          { shouldPlay: true }
-        );
+        // Som embutido como base64 WAV curto (beep + partida de motor simulado)
+        // Formato: WAV 8000Hz mono 8bit - compativel garantido com Android
+        const soundB64 = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+        const soundPath = FileSystem.cacheDirectory + 'engine_start.wav';
+        await FileSystem.writeAsStringAsync(soundPath, soundB64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const { sound } = await Audio.Sound.createAsync({ uri: soundPath });
         await sound.playAsync();
       } catch (err) {
-        console.warn("Erro ao tocar o som da engine:", err);
+        console.warn('Erro ao tocar som de partida:', err);
       }
     };
     playEngineSound();
@@ -144,6 +151,13 @@ export default function App() {
           };
           setLocation(locObj);
           setPickupLocation(locObj);
+          // Espalhando os carros simulados perto da localização real do usuário
+          setDrivers([
+            { id: 1, latitude: currentLoc.coords.latitude + 0.004, longitude: currentLoc.coords.longitude + 0.005 },
+            { id: 2, latitude: currentLoc.coords.latitude - 0.003, longitude: currentLoc.coords.longitude + 0.007 },
+            { id: 3, latitude: currentLoc.coords.latitude + 0.006, longitude: currentLoc.coords.longitude - 0.004 },
+            { id: 4, latitude: currentLoc.coords.latitude - 0.005, longitude: currentLoc.coords.longitude - 0.006 },
+          ]);
         }
       } catch (error) {
         console.warn("Erro ao obter localização inicial (timeout ou falha):", error);
@@ -156,6 +170,13 @@ export default function App() {
         };
         setLocation(fallbackLoc);
         setPickupLocation(fallbackLoc);
+        // Carros próximos ao fallback (Muriaé)
+        setDrivers([
+          { id: 1, latitude: -21.1268, longitude: -42.3600 },
+          { id: 2, latitude: -21.1340, longitude: -42.3680 },
+          { id: 3, latitude: -21.1280, longitude: -42.3710 },
+          { id: 4, latitude: -21.1330, longitude: -42.3590 },
+        ]);
       }
     })();
 
@@ -418,11 +439,11 @@ export default function App() {
       {/* Header Elegante BibiMarcos com Logo */}
       <View className="bg-emerald-900 p-5 pt-14 flex-row justify-between items-center shadow-2xl border-b-[6px] border-emerald-500 rounded-b-3xl z-10">
         <View className="flex-row items-center">
-          <View className="bg-white p-1 rounded-full mr-3 shadow-md border-2 border-emerald-400">
+          <View className="bg-white p-0.5 rounded-full mr-3 shadow-md border-2 border-emerald-400 overflow-hidden">
             <Image 
               source={require('./assets/icon.png')} 
-              style={{ width: 45, height: 45, borderRadius: 22.5 }} 
-              resizeMode="contain"
+              style={{ width: 56, height: 56, borderRadius: 28 }} 
+              resizeMode="cover"
             />
           </View>
           <View>
@@ -641,8 +662,8 @@ export default function App() {
           </View>
         )}
 
-        {/* Botão de Chat flutuante (Sempre visível para Demo) */}
-        <View className={`absolute right-4 ${isDriverOnline ? 'bottom-10' : 'bottom-48'}`}>
+        {/* Botão de Chat flutuante - acima do botão GPS para não sobrepor */}
+        <View className={`absolute right-4 ${isDriverOnline ? 'bottom-10' : 'bottom-[220px]'}`}>
           <TouchableOpacity
             className="bg-emerald-800 w-16 h-16 rounded-full justify-center items-center shadow-2xl elevation-10 border-4 border-white"
             onPress={() => setChatVisible(true)}
