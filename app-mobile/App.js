@@ -74,6 +74,7 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const ws = useRef(null);
+  const webViewRef = useRef(null);
 
   const [drivers, setDrivers] = useState([
     // Mock inicial, depois pode vir do /match da sua API
@@ -397,6 +398,15 @@ export default function App() {
     } catch(e) {}
   };
 
+  const recenterMap = () => {
+    if (location && webViewRef.current) {
+      // Injeta JavaScript para mover o mapa de volta para o GPS real do celular
+      const script = `map.flyTo([${location.latitude}, ${location.longitude}], 16, { animate: true, duration: 0.5 }); true;`;
+      webViewRef.current.injectJavaScript(script);
+      setPickupLocation(location);
+    }
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-slate-50">
       {/* Header Elegante BibiMarcos */}
@@ -422,6 +432,7 @@ export default function App() {
       <View className="flex-1 relative bg-slate-200">
         {location ? (
           <WebView
+            ref={webViewRef}
             originWhitelist={['*']}
             onMessage={onMapMessage}
             source={{
@@ -524,10 +535,12 @@ export default function App() {
                     }
 
                     // Simulador Avançado de Carros (Apresentação do App)
-                    var carIcon = L.icon({
-                      iconUrl: 'https://cdn-icons-png.flaticon.com/512/3204/3204905.png',
-                      iconSize: [40, 40],
-                      iconAnchor: [20, 20]
+                    // Usando DivIcon puro garantido para não depender de imagens externas (evita erros 403 Forbidden)
+                    var carIcon = L.divIcon({
+                      className: 'custom-car-marker',
+                      html: '<div style="background-color: #10b981; border: 2px solid white; border-radius: 8px; width: 34px; height: 34px; display: flex; justify-content: center; align-items: center; box-shadow: 0 3px 6px rgba(0,0,0,0.4); font-size: 20px;">🚘</div>',
+                      iconSize: [34, 34],
+                      iconAnchor: [17, 17]
                     });
                     
                     var drivers = ${JSON.stringify(drivers)};
@@ -598,6 +611,18 @@ export default function App() {
                 <Text className="text-2xl">🏁</Text>
               </TouchableOpacity>
             )}
+          </View>
+        )}
+
+        {/* Botão Centralizar GPS */}
+        {!isDriverOnline && routeCoordinates.length === 0 && (
+          <View className="absolute bottom-[160px] right-4">
+            <TouchableOpacity
+              className="bg-white w-12 h-12 rounded-full justify-center items-center shadow-lg border border-slate-200 elevation-5"
+              onPress={recenterMap}
+            >
+              <Text className="text-emerald-700 text-2xl">🎯</Text>
+            </TouchableOpacity>
           </View>
         )}
 
