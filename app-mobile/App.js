@@ -12,7 +12,7 @@ import {
   Alert,
   Image
 } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import QRCode from 'react-native-qrcode-svg';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
@@ -340,56 +340,83 @@ export default function App() {
         </View>
       </View>
 
-      {/* Área do Mapa */}
+      {/* Área do Mapa - Usando Leaflet (100% Open Source via WebView) para não depender do Google Maps e evitar Crash */}
       <View className="flex-1 relative bg-slate-200">
         {location ? (
-          <MapView
+          <WebView
+            originWhitelist={['*']}
+            source={{
+              html: `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+                  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+                  <style>
+                    body { padding: 0; margin: 0; background-color: #e2e8f0; }
+                    html, body, #map { height: 100%; width: 100%; }
+                    /* Customizando o marcador do usuário para ficar parecido com o original */
+                    .user-marker {
+                      background-color: #064e3b;
+                      border: 3px solid #34d399;
+                      border-radius: 50%;
+                      display: flex;
+                      justify-content: center;
+                      align-items: center;
+                      color: white;
+                      font-size: 18px;
+                      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+                    }
+                  </style>
+                </head>
+                <body>
+                  <div id="map"></div>
+                  <script>
+                    // Inicializa o mapa com Carto Voyager (OpenStreetMap estilizado)
+                    var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${location.latitude}, ${location.longitude}], 15);
+                    L.tileLayer('https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+                      maxZoom: 19
+                    }).addTo(map);
+
+                    // Ícone customizado do Usuário
+                    var userIcon = L.divIcon({
+                      className: 'user-marker',
+                      html: '📍',
+                      iconSize: [40, 40],
+                      iconAnchor: [20, 20]
+                    });
+                    L.marker([${location.latitude}, ${location.longitude}], {icon: userIcon}).addTo(map);
+
+                    // Desenhando a Rota do OSRM se existir
+                    var routePoints = ${JSON.stringify(routeCoordinates.map(c => [c.latitude, c.longitude]))};
+                    if (routePoints.length > 0) {
+                      var polyline = L.polyline(routePoints, {color: '#10b981', weight: 6, lineCap: 'round'}).addTo(map);
+                      map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+                    }
+
+                    // Marcadores dos Motoristas (Carros)
+                    var drivers = ${JSON.stringify(drivers)};
+                    var carIcon = L.icon({
+                      iconUrl: 'https://cdn-icons-png.flaticon.com/512/3204/3204905.png',
+                      iconSize: [45, 45],
+                      iconAnchor: [22, 22]
+                    });
+                    drivers.forEach(function(driver) {
+                      L.marker([driver.latitude, driver.longitude], {icon: carIcon}).addTo(map);
+                    });
+
+                    // Força o mapa a recarregar quando o tamanho do container mudar
+                    window.addEventListener('resize', function() {
+                      map.invalidateSize();
+                    });
+                  </script>
+                </body>
+                </html>
+              `
+            }}
             className="flex-1"
-            initialRegion={location}
-            region={location}
-            showsUserLocation={false} 
-            mapType="none" // Desativa os mapas base nativos para usar apenas o OpenStreetMap
-          >
-            {/* Camada de Mapas base CartoDB (Voyager) */}
-            <UrlTile
-              urlTemplate="https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-              maximumZ={19}
-              flipY={false}
-              userAgent="BibiMarcosApp-Muriae/1.0"
-            />
-
-            {/* Linha da rota traçada pelo OSRM */}
-            {routeCoordinates.length > 0 && (
-              <Polyline
-                coordinates={routeCoordinates}
-                strokeColor="#10b981" // Verde do Governo (emerald-500)
-                strokeWidth={5}
-                lineDashPattern={[0]} // Para algumas plataformas manter sólido
-              />
-            )}
-            {/* Marcador do Passageiro/Usuário atual */}
-            <Marker coordinate={location} title="Local de Partida">
-              <View className="bg-emerald-900 border-[3px] border-emerald-400 rounded-full w-12 h-12 justify-center items-center shadow-2xl elevation-10">
-                <Text className="text-white text-xl drop-shadow-lg">📍</Text>
-              </View>
-            </Marker>
-
-            {/* Marcadores dos Motoristas (Renderizando Imagem do Asset local) */}
-            {drivers.map(driver => (
-              <Marker 
-                key={driver.id} 
-                coordinate={{ latitude: driver.latitude, longitude: driver.longitude }} 
-                title={`Motorista #${driver.id}`}
-              >
-                {/* Fallback de UI caso o asset não exista no mock de ambiente (car3d.png) */}
-                <Image 
-                  source={require('./assets/car3d.png')} 
-                  style={{ width: 45, height: 45, resizeMode: 'contain' }} 
-                  defaultSource={{uri: 'https://cdn-icons-png.flaticon.com/512/3204/3204905.png'}}
-                />
-              </Marker>
-            ))}
-          </MapView>
+          />
         ) : (
           <View className="flex-1 justify-center items-center">
             <ActivityIndicator size="large" color="#047857" />
