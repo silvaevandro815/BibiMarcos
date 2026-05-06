@@ -1,4 +1,4 @@
--- BibiMarcos v4 — Schema PostgreSQL
+-- BibiMarcos v5 — Schema PostgreSQL
 -- Roda em qualquer Postgres 14+ (sem PostGIS necessário para este schema)
 
 CREATE TABLE IF NOT EXISTS users (
@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS rides (
     status              TEXT DEFAULT 'searching',
     payment_method      TEXT,
     payment_preference  TEXT DEFAULT 'any',
+    passenger_rating    INTEGER,
+    driver_rating       INTEGER,
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     accepted_at         TIMESTAMPTZ,
     started_at          TIMESTAMPTZ,

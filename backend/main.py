@@ -11,7 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-app = FastAPI(title="BibiMarcos API v4 - Production")
+app = FastAPI(title="BibiMarcos API v5 - Production UX")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,7 +30,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localho
 online_drivers: Dict[str, dict] = {}
 active_rides: Dict[str, dict] = {}
 ws_connections: Dict[str, WebSocket] = {}
-otp_store: Dict[str, dict] = {}   # telefone → {code, expires_at}
+otp_store: Dict[str, dict] = {}
 
 
 # ============================================================
@@ -74,6 +74,8 @@ async def startup():
                 status          TEXT DEFAULT 'searching',
                 payment_method  TEXT,
                 payment_preference TEXT DEFAULT 'any',
+                passenger_rating INTEGER,
+                driver_rating   INTEGER,
                 created_at      TIMESTAMPTZ DEFAULT NOW(),
                 accepted_at     TIMESTAMPTZ,
                 started_at      TIMESTAMPTZ,
@@ -81,6 +83,13 @@ async def startup():
                 cancelled_at    TIMESTAMPTZ
             );
         """)
+        # Adicionar colunas se as tabelas já existirem e não tiverem as colunas
+        try:
+            await conn.execute("ALTER TABLE rides ADD COLUMN passenger_rating INTEGER;")
+        except: pass
+        try:
+            await conn.execute("ALTER TABLE rides ADD COLUMN driver_rating INTEGER;")
+        except: pass
     finally:
         await conn.close()
 
@@ -116,7 +125,6 @@ async def notify(user_id: str, message: dict):
 
 
 async def send_push(push_token: str, title: str, body: str, data: dict = {}):
-    """Envia Push Notification via Expo Push API (gratuito, sem Firebase)."""
     if not push_token or not push_token.startswith("ExponentPushToken"):
         return
     import urllib.request
@@ -151,6 +159,7 @@ class RegisterModel(BaseModel):
     chave_pix: Optional[str] = None
     veiculo: Optional[str] = None
     push_token: Optional[str] = None
+    foto_url: Optional[str] = None
 
 
 class OTPRequest(BaseModel):
@@ -188,6 +197,11 @@ class PushTokenUpdate(BaseModel):
     push_token: str
 
 
+class RateRequest(BaseModel):
+    user_id: str
+    rating: int
+
+
 # ============================================================
 # SAÚDE
 # ============================================================
@@ -195,7 +209,7 @@ class PushTokenUpdate(BaseModel):
 def root():
     return {
         "status": "online",
-        "app": "BibiMarcos API v4",
+        "app": "BibiMarcos API v5",
         "drivers_online": len(online_drivers),
         "active_rides": len([r for r in active_rides.values() if r["status"] not in ("completed","cancelled")]),
     }
@@ -206,28 +220,20 @@ def root():
 # ============================================================
 @app.post("/api/auth/request-otp")
 async def request_otp(data: OTPRequest):
-    """
-    Gera um código OTP de 6 dígitos.
-    Em produção: enviar por SMS (Twilio/Z-API) ou WhatsApp.
-    Por ora: retorna o código na resposta para testes.
-    """
     code = ''.join(random.choices(string.digits, k=6))
     otp_store[data.telefone] = {
         "code": code,
         "expires_at": (datetime.now() + timedelta(minutes=10)).isoformat()
     }
-    # TODO produção: enviar via Z-API WhatsApp ou Twilio SMS
-    # Por ora: retorna o código (remover em produção real)
     return {
         "message": "Código enviado!",
-        "debug_code": code,  # ← remover em produção
+        "debug_code": code,
         "expires_in": "10 minutos"
     }
 
 
 @app.post("/api/auth/verify-otp")
 async def verify_otp(data: OTPVerify):
-    """Verifica o OTP e faz login/registro automático."""
     entry = otp_store.get(data.telefone)
     if not entry:
         raise HTTPException(status_code=400, detail="Código não solicitado. Peça um novo código.")
@@ -239,7 +245,6 @@ async def verify_otp(data: OTPVerify):
 
     otp_store.pop(data.telefone, None)
 
-    # Busca usuário existente
     conn = await get_db()
     try:
         row = await conn.fetchrow("SELECT * FROM users WHERE telefone=$1", data.telefone)
@@ -269,10 +274,10 @@ async def register(data: RegisterModel):
 
         user_id = str(uuid.uuid4())[:8]
         await conn.execute("""
-            INSERT INTO users (user_id, nome, telefone, tipo, chave_pix, veiculo, push_token)
-            VALUES ($1,$2,$3,$4,$5,$6,$7)
+            INSERT INTO users (user_id, nome, telefone, tipo, chave_pix, veiculo, push_token, foto_url)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         """, user_id, data.nome, data.telefone, data.tipo,
-            data.chave_pix or "", data.veiculo or "", data.push_token or "")
+            data.chave_pix or "", data.veiculo or "", data.push_token or "", data.foto_url or "")
 
         row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
         return {"user_id": user_id, "user": dict(row)}
@@ -337,6 +342,7 @@ async def go_online(data: dict):
             "chave_pix": u.get("chave_pix", ""),
             "veiculo": u.get("veiculo", ""),
             "avaliacao": u.get("avaliacao", 5.0),
+            "foto_url": u.get("foto_url", ""),
             "push_token": u.get("push_token", ""),
             "lat": data.get("lat", 0),
             "lng": data.get("lng", 0),
@@ -367,7 +373,7 @@ def get_nearby_drivers(lat: float, lng: float, radius: float = 10000):
 
 
 # ============================================================
-# CORRIDAS
+# CORRIDAS E AVALIAÇÕES
 # ============================================================
 @app.post("/api/rides/request")
 async def request_ride(data: RideRequest):
@@ -387,8 +393,10 @@ async def request_ride(data: RideRequest):
 
     conn = await get_db()
     try:
-        pass_row = await conn.fetchrow("SELECT nome FROM users WHERE user_id=$1", data.passenger_id)
+        pass_row = await conn.fetchrow("SELECT nome, avaliacao, foto_url FROM users WHERE user_id=$1", data.passenger_id)
         passenger_name = pass_row["nome"] if pass_row else "Passageiro"
+        passenger_avaliacao = pass_row["avaliacao"] if pass_row else 5.0
+        passenger_foto_url = pass_row["foto_url"] if pass_row else ""
 
         await conn.execute("""
             INSERT INTO rides (ride_id, passenger_id, origin_lat, origin_lng, origin_name,
@@ -403,6 +411,8 @@ async def request_ride(data: RideRequest):
         "ride_id": ride_id,
         "passenger_id": data.passenger_id,
         "passenger_name": passenger_name,
+        "passenger_avaliacao": passenger_avaliacao,
+        "passenger_foto_url": passenger_foto_url,
         "driver_id": None,
         "origin_lat": data.origin_lat, "origin_lng": data.origin_lng,
         "origin_name": data.origin_name,
@@ -414,13 +424,12 @@ async def request_ride(data: RideRequest):
     }
     active_rides[ride_id] = ride
 
-    # Notifica até 3 motoristas mais próximos via WS + Push
     for uid, d, dist in available[:3]:
         await notify(uid, {"type": "ride_request", "ride": {**ride, "driver_distance_meters": round(dist)}})
         await send_push(
             d.get("push_token", ""),
             "🚗 Nova corrida disponível!",
-            f"{passenger_name} • R$ {fare:.2f} • {dist/1000:.1f}km de você",
+            f"Passageiro: ⭐{passenger_avaliacao:.1f} • R$ {fare:.2f} • {dist/1000:.1f}km",
             {"type": "ride_request", "ride_id": ride_id}
         )
 
@@ -444,6 +453,7 @@ async def accept_ride(ride_id: str, data: RideAction):
         "driver_chave_pix": driver["chave_pix"],
         "driver_veiculo": driver["veiculo"],
         "driver_avaliacao": driver.get("avaliacao", 5.0),
+        "driver_foto_url": driver.get("foto_url", ""),
         "status": "accepted",
     })
     online_drivers[data.user_id]["status"] = "in_ride"
@@ -462,8 +472,8 @@ async def accept_ride(ride_id: str, data: RideAction):
     if pass_row and pass_row["push_token"]:
         await send_push(
             pass_row["push_token"],
-            "✅ Motorista encontrado!",
-            f"{driver['nome']} • {driver['veiculo']} • a caminho",
+            "✅ Motorista a caminho!",
+            f"{driver['nome']} (⭐{driver.get('avaliacao',5.0):.1f}) • {driver['veiculo']}",
             {"type": "ride_accepted", "ride_id": ride_id}
         )
     return {"status": "accepted", "ride": ride}
@@ -485,7 +495,7 @@ async def driver_arrived(ride_id: str, data: RideAction):
 
     await notify(ride["passenger_id"], {"type": "driver_arrived", "ride": ride})
     if row and row["push_token"]:
-        await send_push(row["push_token"], "🚗 Motorista chegou!", "Seu motorista está no ponto de embarque.", {"type": "driver_arrived"})
+        await send_push(row["push_token"], "🚗 Motorista chegou!", "Seu motorista está no local.", {"type": "driver_arrived"})
     return {"status": "driver_arrived"}
 
 
@@ -531,7 +541,7 @@ async def complete_ride(ride_id: str, data: CompleteRideAction):
 
     await notify(ride["passenger_id"], {"type": "ride_completed", "ride": ride})
     if row and row["push_token"]:
-        await send_push(row["push_token"], "🏁 Corrida finalizada!", f"Valor: R$ {ride['fare']:.2f}. Obrigado por usar o BibiMarcos!", {"type": "ride_completed"})
+        await send_push(row["push_token"], "🏁 Corrida finalizada!", f"Valor: R$ {ride['fare']:.2f}. Avalie no app!", {"type": "ride_completed"})
     return {"status": "completed", "ride": ride}
 
 
@@ -558,6 +568,37 @@ async def cancel_ride(ride_id: str, data: RideAction):
     if ride.get("driver_id"):
         await notify(ride["driver_id"], {"type": "ride_cancelled", "ride": ride})
     return {"status": "cancelled"}
+
+
+@app.post("/api/rides/{ride_id}/rate")
+async def rate_ride(ride_id: str, data: RateRequest):
+    conn = await get_db()
+    try:
+        ride = await conn.fetchrow("SELECT * FROM rides WHERE ride_id=$1", ride_id)
+        if not ride:
+            raise HTTPException(status_code=404, detail="Corrida não encontrada")
+        
+        is_passenger = ride["passenger_id"] == data.user_id
+        is_driver = ride["driver_id"] == data.user_id
+        
+        if not (is_passenger or is_driver):
+            raise HTTPException(status_code=403, detail="Não autorizado")
+            
+        target_user_id = ride["driver_id"] if is_passenger else ride["passenger_id"]
+        column_to_update = "driver_rating" if is_passenger else "passenger_rating"
+        
+        await conn.execute(f"UPDATE rides SET {column_to_update}=$1 WHERE ride_id=$2", data.rating, ride_id)
+        
+        avg_row = await conn.fetchrow(f"SELECT AVG({column_to_update}) as media FROM rides WHERE {'driver_id' if is_passenger else 'passenger_id'}=$1 AND {column_to_update} IS NOT NULL", target_user_id)
+        media = round(avg_row["media"], 1) if avg_row["media"] else 5.0
+        
+        await conn.execute("UPDATE users SET avaliacao=$1 WHERE user_id=$2", media, target_user_id)
+        if target_user_id in online_drivers:
+            online_drivers[target_user_id]["avaliacao"] = media
+            
+        return {"status": "ok", "new_rating": media}
+    finally:
+        await conn.close()
 
 
 @app.get("/api/rides/history/{user_id}")
@@ -634,6 +675,5 @@ async def websocket_endpoint(websocket: WebSocket):
         if user_id:
             ws_connections.pop(user_id, None)
     except Exception as e:
-        print(f"WS error {user_id}: {e}")
         if user_id:
             ws_connections.pop(user_id, None)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image, Dimensions } from 'react-native';
+import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
@@ -8,6 +8,7 @@ import LoginScreen from './screens/LoginScreen';
 import ChatModal from './components/ChatModal';
 import PaymentModal from './components/PaymentModal';
 import DestinationModal from './components/DestinationModal';
+import RatingModal from './components/RatingModal';
 
 const WS_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws';
 const HTTP_URL = WS_URL.replace('ws://', 'http://').replace('wss://', 'https://').replace('/ws', '');
@@ -23,6 +24,8 @@ export default function App() {
   const [chatVisible, setChatVisible] = useState(false);
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [destVisible, setDestVisible] = useState(false);
+  const [ratingVisible, setRatingVisible] = useState(false);
+  const [rideToRate, setRideToRate] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [rideStatus, setRideStatus] = useState('');
@@ -31,6 +34,12 @@ export default function App() {
   const ws = useRef(null);
   const webViewRef = useRef(null);
   const locSub = useRef(null);
+
+  const rideStatusRef = useRef(rideStatus);
+  const locationRef = useRef(location);
+
+  useEffect(() => { rideStatusRef.current = rideStatus; }, [rideStatus]);
+  useEffect(() => { locationRef.current = location; }, [location]);
 
   useEffect(() => {
     (async () => {
@@ -62,7 +71,7 @@ export default function App() {
           const r = data.ride;
           Alert.alert(
             '🚗 Nova Corrida!',
-            `Passageiro: ${r.passenger_name}\nDe: ${r.origin_name}\nPara: ${r.dest_name}\nValor: R$ ${r.fare?.toFixed(2)}\nDistância até passag.: ${(r.driver_distance_meters / 1000).toFixed(1)}km`,
+            `Passageiro: ${r.passenger_name} (⭐${r.passenger_avaliacao?.toFixed(1)})\nDe: ${r.origin_name}\nPara: ${r.dest_name}\nValor: R$ ${r.fare?.toFixed(2)}\nDistância: ${(r.driver_distance_meters / 1000).toFixed(1)}km`,
             [{ text: 'Recusar', style: 'cancel' }, { text: 'ACEITAR ✓', onPress: () => acceptRide(r.ride_id) }]
           );
         }
@@ -71,24 +80,41 @@ export default function App() {
         setActiveRide(data.ride);
         setRideStatus('accepted');
         setSearching(false);
-        Alert.alert('✅ Motorista encontrado!', `${data.ride.driver_name}\n${data.ride.driver_veiculo}`);
         break;
       case 'driver_arrived':
         setActiveRide(data.ride);
         setRideStatus('driver_arrived');
-        Alert.alert('🚗 Motorista chegou!', 'Seu motorista está no local de embarque.');
         break;
       case 'ride_started':
         setActiveRide(data.ride);
         setRideStatus('in_ride');
         break;
       case 'ride_completed':
-        setActiveRide(data.ride);
-        setRideStatus('completed');
-        if (user.tipo === 'passageiro') setPaymentVisible(true);
+        setRideToRate(data.ride);
+        if (user.tipo === 'passageiro') {
+          setPaymentVisible(true);
+        } else {
+          setActiveRide(null); setRideStatus(''); setChatMessages([]);
+          if (isOnline) startTracking();
+          setRatingVisible(true);
+        }
         break;
       case 'driver_location':
-        webViewRef.current?.injectJavaScript(`updateDriver(${data.lat},${data.lng});true;`);
+        if (rideStatusRef.current === 'accepted' && locationRef.current) {
+          const loc = locationRef.current;
+          fetch(`https://router.project-osrm.org/route/v1/driving/${data.lng},${data.lat};${loc.longitude},${loc.latitude}?overview=false`)
+            .then(r => r.json())
+            .then(d => {
+                let eta = '';
+                if (d.routes && d.routes.length > 0) {
+                    const mins = Math.ceil(d.routes[0].duration / 60);
+                    eta = mins > 0 ? `${mins} min` : 'Chegando';
+                }
+                webViewRef.current?.injectJavaScript(`updateDriver(${data.lat},${data.lng}, "${eta}");true;`);
+            }).catch(() => webViewRef.current?.injectJavaScript(`updateDriver(${data.lat},${data.lng}, "");true;`));
+        } else {
+          webViewRef.current?.injectJavaScript(`updateDriver(${data.lat},${data.lng}, "");true;`);
+        }
         break;
       case 'chat':
         setChatMessages(p => [...p, data]);
@@ -162,7 +188,7 @@ export default function App() {
       });
       if (!r.ok) {
         const e = await r.json();
-        Alert.alert('Sem motoristas', e.detail || 'Nenhum motorista disponível.'); setSearching(false);
+        Alert.alert('Aviso', e.detail || 'Nenhum motorista disponível.'); setSearching(false);
       } else {
         const d = await r.json();
         setActiveRide({ ride_id: d.ride_id, fare: d.fare, dest_name: destInfo.dest_name, origin_name: 'Minha Localização' });
@@ -187,12 +213,19 @@ export default function App() {
 
   const completeRide = async (method) => {
     if (!activeRide) return;
-    await fetch(`${HTTP_URL}/api/rides/${activeRide.ride_id}/complete`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: user.user_id, payment_method: method })
-    });
-    setActiveRide(null); setRideStatus(''); setChatMessages([]);
-    if (isOnline) startTracking();
+    if (user.tipo === 'motorista') {
+        await fetch(`${HTTP_URL}/api/rides/${activeRide.ride_id}/complete`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: user.user_id, payment_method: method || 'pix' })
+        });
+        setRideToRate(activeRide);
+        setActiveRide(null); setRideStatus(''); setChatMessages([]);
+        if (isOnline) startTracking();
+        setRatingVisible(true);
+    } else {
+        setActiveRide(null); setRideStatus(''); setChatMessages([]);
+        setRatingVisible(true);
+    }
   };
 
   const cancelRide = () => {
@@ -217,6 +250,19 @@ export default function App() {
     setChatInput('');
   };
 
+  const submitRating = async (rating) => {
+    if (!rideToRate) return;
+    try {
+      const r = await fetch(`${HTTP_URL}/api/rides/${rideToRate.ride_id}/rate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.user_id, rating })
+      });
+      // Optionally update user rating here
+    } catch {}
+    setRatingVisible(false);
+    setRideToRate(null);
+  };
+
   if (!user) return <LoginScreen onLogin={setUser} />;
 
   const mapHtml = `<!DOCTYPE html><html><head>
@@ -228,14 +274,17 @@ export default function App() {
 var map=L.map('map',{zoomControl:false,attributionControl:true}).setView([${location?.latitude||(-21.13)},${location?.longitude||(-42.37)}],15);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
 var meIcon=L.divIcon({className:'',html:'📍',iconSize:[30,30],iconAnchor:[15,30]});
-var carIcon=L.divIcon({className:'',html:'🚗',iconSize:[36,36],iconAnchor:[18,18]});
 var meMarker=L.marker([${location?.latitude||(-21.13)},${location?.longitude||(-42.37)}],{icon:meIcon}).addTo(map);
 var driverMarker=null;
 var routeLine=null;
 window.updateMe=function(lat,lng){meMarker.setLatLng([lat,lng]);map.panTo([lat,lng]);};
-window.updateDriver=function(lat,lng){
-  if(!driverMarker){driverMarker=L.marker([lat,lng],{icon:carIcon}).addTo(map);}
-  else{driverMarker.setLatLng([lat,lng]);}
+window.updateDriver=function(lat,lng,eta){
+  var etaHtml = eta ? '<div style="position:absolute;top:-28px;left:-20px;background:#064e3b;color:#fff;padding:4px 8px;border-radius:12px;font-size:12px;font-weight:900;white-space:nowrap;box-shadow:0 3px 6px rgba(0,0,0,0.3);border:2px solid #fff;">' + eta + '</div>' : '';
+  var iconHtml = '<div style="position:relative;">' + etaHtml + '<div style="font-size:36px;text-shadow:0 2px 5px rgba(0,0,0,0.3);">🚗</div></div>';
+  var newIcon = L.divIcon({className:'', html: iconHtml, iconSize:[36,36], iconAnchor:[18,18]});
+  
+  if(!driverMarker){driverMarker=L.marker([lat,lng],{icon:newIcon}).addTo(map);}
+  else{driverMarker.setLatLng([lat,lng]); driverMarker.setIcon(newIcon);}
   var grp=L.featureGroup([meMarker,driverMarker]);
   map.fitBounds(grp.getBounds(),{padding:[60,60]});
 };
@@ -246,7 +295,7 @@ window.drawRoute=function(coords){
 };
 </script></body></html>`;
 
-  const statusLabel = { searching: '🔍 Buscando motorista...', accepted: '🚗 Motorista a caminho', driver_arrived: '✅ Motorista chegou!', in_ride: '🛣️ Em viagem', completed: '🏁 Chegou!' };
+  const statusLabel = { searching: '🔍 Buscando motorista...', accepted: '🚗 Motorista a caminho', driver_arrived: '✅ Motorista chegou!', in_ride: '🛣️ Em viagem' };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#064e3b' }}>
@@ -255,10 +304,10 @@ window.drawRoute=function(coords){
       {/* Header */}
       <View style={{ padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#064e3b' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Image source={require('./assets/icon.png')} style={{ width: 38, height: 38, borderRadius: 19, marginRight: 10, borderWidth: 2, borderColor: '#34d399' }} />
+          <Image source={user.foto_url ? {uri: user.foto_url} : require('./assets/icon.png')} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 10, borderWidth: 2, borderColor: '#34d399' }} />
           <View>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 17 }}>BibiMarcos</Text>
-            <Text style={{ color: '#34d399', fontSize: 10, fontWeight: '700' }}>{user.nome.toUpperCase()} · {user.tipo}</Text>
+            <Text style={{ color: '#34d399', fontSize: 10, fontWeight: '700' }}>{user.nome.toUpperCase()} · ⭐ {(user.avaliacao||5.0).toFixed(1)}</Text>
           </View>
         </View>
         {user.tipo === 'motorista' && (
@@ -280,10 +329,9 @@ window.drawRoute=function(coords){
           </View>
         )}
 
-        {/* Botão Chat flutuante */}
         {activeRide && rideStatus !== 'searching' && (
           <TouchableOpacity
-            style={{ position: 'absolute', bottom: 110, right: 18, backgroundColor: '#064e3b', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6 }}
+            style={{ position: 'absolute', bottom: 180, right: 18, backgroundColor: '#064e3b', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6 }}
             onPress={() => setChatVisible(true)}
           >
             <Text style={{ fontSize: 26 }}>💬</Text>
@@ -296,23 +344,62 @@ window.drawRoute=function(coords){
 
       {/* Bottom Panel */}
       <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, elevation: 20, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 20 }}>
-        {/* Status da corrida */}
-        {activeRide && (
-          <View style={{ backgroundColor: '#f0fdf4', borderRadius: 14, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: '#bbf7d0' }}>
-            <Text style={{ fontWeight: '900', fontSize: 16, color: '#064e3b' }}>{statusLabel[rideStatus] || '⏳ Processando...'}</Text>
-            {activeRide.dest_name && <Text style={{ color: '#64748b', marginTop: 2, fontSize: 13 }}>📍 {activeRide.dest_name}</Text>}
-            {activeRide.fare && <Text style={{ color: '#10b981', fontWeight: '800', marginTop: 4 }}>R$ {parseFloat(activeRide.fare).toFixed(2)}</Text>}
+        
+        {/* Card do Motorista/Passageiro Expandível */}
+        {activeRide && rideStatus !== 'searching' && (
+          <View style={{ backgroundColor: '#f8fafc', borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#e2e8f0' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontWeight: '900', fontSize: 16, color: '#064e3b' }}>{statusLabel[rideStatus] || '⏳ Processando...'}</Text>
+                {activeRide.fare && <Text style={{ color: '#10b981', fontWeight: '900', fontSize: 18 }}>R$ {parseFloat(activeRide.fare).toFixed(2)}</Text>}
+            </View>
+
+            {user.tipo === 'passageiro' && activeRide.driver_name && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 }}>
+                    <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginRight: 12 }}>
+                        {activeRide.driver_foto_url ? (
+                            <Image source={{ uri: activeRide.driver_foto_url }} style={{ width: '100%', height: '100%' }} />
+                        ) : (
+                            <Text style={{ fontSize: 24 }}>🚗</Text>
+                        )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '800', fontSize: 16, color: '#1e293b' }}>{activeRide.driver_name}</Text>
+                        <Text style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{activeRide.driver_veiculo}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontWeight: '900', color: '#fbbf24', fontSize: 16 }}>⭐ {(activeRide.driver_avaliacao || 5.0).toFixed(1)}</Text>
+                    </View>
+                </View>
+            )}
+
+            {user.tipo === 'motorista' && activeRide.passenger_name && (
+                 <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 }}>
+                    <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginRight: 12 }}>
+                        {activeRide.passenger_foto_url ? (
+                            <Image source={{ uri: activeRide.passenger_foto_url }} style={{ width: '100%', height: '100%' }} />
+                        ) : (
+                            <Text style={{ fontSize: 24 }}>🧑</Text>
+                        )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '800', fontSize: 16, color: '#1e293b' }}>{activeRide.passenger_name}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontWeight: '900', color: '#fbbf24', fontSize: 16 }}>⭐ {(activeRide.passenger_avaliacao || 5.0).toFixed(1)}</Text>
+                    </View>
+                </View>
+            )}
+
+            {activeRide.dest_name && <Text style={{ color: '#64748b', marginTop: 12, fontSize: 13 }}>📍 Destino: {activeRide.dest_name}</Text>}
           </View>
         )}
 
-        {/* Ações: Passageiro sem corrida */}
         {!activeRide && user.tipo === 'passageiro' && !searching && (
           <TouchableOpacity style={{ backgroundColor: '#064e3b', padding: 18, borderRadius: 16, alignItems: 'center', elevation: 4 }} onPress={() => setDestVisible(true)}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>🗺️  PARA ONDE VAMOS?</Text>
           </TouchableOpacity>
         )}
 
-        {/* Passageiro buscando */}
         {searching && (
           <View style={{ alignItems: 'center', paddingVertical: 8 }}>
             <ActivityIndicator color="#064e3b" size="large" />
@@ -323,48 +410,43 @@ window.drawRoute=function(coords){
           </View>
         )}
 
-        {/* Passageiro em corrida */}
         {activeRide && user.tipo === 'passageiro' && rideStatus !== 'completed' && (
           <TouchableOpacity onPress={cancelRide} style={{ backgroundColor: '#fef2f2', padding: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#fecaca' }}>
             <Text style={{ color: '#ef4444', fontWeight: '800' }}>✕  Cancelar corrida</Text>
           </TouchableOpacity>
         )}
 
-        {/* Motorista offline */}
         {user.tipo === 'motorista' && !isOnline && !activeRide && (
           <Text style={{ textAlign: 'center', color: '#94a3b8', fontWeight: '600', paddingVertical: 10 }}>Ligue o switch para ficar online e receber corridas</Text>
         )}
 
-        {/* Motorista online sem corrida */}
         {user.tipo === 'motorista' && isOnline && !activeRide && (
           <Text style={{ textAlign: 'center', color: '#064e3b', fontWeight: '700', paddingVertical: 10 }}>✅ Online — aguardando chamadas...</Text>
         )}
 
-        {/* Motorista: corrida aceita → botão "Cheguei" */}
         {user.tipo === 'motorista' && activeRide && rideStatus === 'accepted' && (
           <TouchableOpacity style={{ backgroundColor: '#f59e0b', padding: 16, borderRadius: 14, alignItems: 'center' }} onPress={() => driverAction('arrived')}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>📍  CHEGUEI AO PASSAGEIRO</Text>
           </TouchableOpacity>
         )}
 
-        {/* Motorista: chegou → botão "Iniciar" */}
         {user.tipo === 'motorista' && activeRide && rideStatus === 'driver_arrived' && (
           <TouchableOpacity style={{ backgroundColor: '#22c55e', padding: 16, borderRadius: 14, alignItems: 'center' }} onPress={() => driverAction('start')}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>▶  INICIAR CORRIDA</Text>
           </TouchableOpacity>
         )}
 
-        {/* Motorista: em viagem → botão "Finalizar" */}
         {user.tipo === 'motorista' && activeRide && rideStatus === 'in_ride' && (
-          <TouchableOpacity style={{ backgroundColor: '#064e3b', padding: 16, borderRadius: 14, alignItems: 'center' }} onPress={() => driverAction('complete').then(() => { setActiveRide(null); setRideStatus(''); setChatMessages([]); })}>
+          <TouchableOpacity style={{ backgroundColor: '#064e3b', padding: 16, borderRadius: 14, alignItems: 'center' }} onPress={() => completeRide('pix')}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>🏁  FINALIZAR CORRIDA</Text>
           </TouchableOpacity>
         )}
       </View>
 
       <ChatModal visible={chatVisible} onClose={() => setChatVisible(false)} messages={chatMessages} input={chatInput} onChangeInput={setChatInput} onSend={sendChat} isDriver={user.tipo === 'motorista'} />
-      <PaymentModal visible={paymentVisible} ride={activeRide} onClose={() => setPaymentVisible(false)} onConfirm={(method) => { setPaymentVisible(false); completeRide(method); }} />
+      <PaymentModal visible={paymentVisible} ride={rideToRate || activeRide} onClose={() => setPaymentVisible(false)} onConfirm={(method) => { setPaymentVisible(false); completeRide(method); }} />
       <DestinationModal visible={destVisible} onClose={() => setDestVisible(false)} origin={location} onConfirm={requestRide} />
+      <RatingModal visible={ratingVisible} onClose={() => setRatingVisible(false)} onSubmit={submitRating} isDriver={user.tipo === 'motorista'} />
     </SafeAreaView>
   );
 }
