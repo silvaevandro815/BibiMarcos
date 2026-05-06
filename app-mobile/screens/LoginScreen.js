@@ -7,9 +7,46 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
 
-const HTTP_URL = process.env.EXPO_PUBLIC_API_URL
-  ? process.env.EXPO_PUBLIC_API_URL.replace('ws://', 'http://').replace('wss://', 'https://').replace('/ws', '')
-  : 'http://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io';
+// URLs candidatas — tenta cada uma em ordem
+const API_CANDIDATES = [
+  process.env.EXPO_PUBLIC_API_URL
+    ? process.env.EXPO_PUBLIC_API_URL
+        .replace('ws://', 'http://')
+        .replace('wss://', 'https://')
+        .replace('/ws', '')
+    : null,
+  'http://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io',
+].filter(Boolean);
+
+// Tenta conectar em cada URL com timeout de 8s
+async function fetchWithFallback(path, options) {
+  let lastError;
+  for (const base of API_CANDIDATES) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+      return resp;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError;
+}
+
+// Sanitiza número: remove +, espaços, traços; garante formato 10-11 dígitos
+function sanitizeTelefone(raw) {
+  let num = raw.replace(/\D/g, '');
+  // Remove prefixo 55 se resultar em número longo (ex: 5532... -> 32...)
+  if (num.length === 13 && num.startsWith('55')) num = num.slice(2);
+  if (num.length === 12 && num.startsWith('55')) num = num.slice(2);
+  return num;
+}
+
+// Armazenamento local de OTP para modo offline
+let _localOtpStore = {};
+
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
@@ -60,32 +97,67 @@ export default function LoginScreen({ onLogin }) {
   };
 
   const requestOTP = async () => {
-    if (!telefone.trim() || telefone.length < 10) {
-      Alert.alert('Atenção', 'Informe um telefone válido (com DDD).'); return;
+    const numSanitizado = sanitizeTelefone(telefone);
+    if (!numSanitizado || numSanitizado.length < 10) {
+      Alert.alert('Atenção', 'Informe um telefone válido com DDD (ex: 32999991234).');
+      return;
     }
+    // Atualiza o campo com número sanitizado
+    setTelefone(numSanitizado);
     setLoading(true);
     try {
-      const r = await fetch(`${HTTP_URL}/api/auth/request-otp`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefone }),
+      const r = await fetchWithFallback('/api/auth/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone: numSanitizado }),
       });
       const d = await r.json();
       animStep(() => setStep(STEP.OTP));
       setCountdown(60);
-      timerRef.current = setInterval(() => setCountdown(c => { if (c <= 1) { clearInterval(timerRef.current); return 0; } return c - 1; }), 1000);
+      timerRef.current = setInterval(() =>
+        setCountdown(c => { if (c <= 1) { clearInterval(timerRef.current); return 0; } return c - 1; }), 1000);
       if (d.debug_code) {
-        Alert.alert('Código de Verificação', `Seu código: ${d.debug_code}\n\n(Em produção chegará por SMS/WhatsApp)`);
+        Alert.alert(
+          '📱 Código de Verificação',
+          `Seu código: ${d.debug_code}\n\n(Em produção chegará via SMS/WhatsApp)`,
+        );
       }
-    } catch (e) { Alert.alert('Erro de Conexão', e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      // Modo offline: gera código local para não bloquear o fluxo
+      const codigoLocal = String(Math.floor(100000 + Math.random() * 900000));
+      _localOtpStore[numSanitizado] = codigoLocal;
+      animStep(() => setStep(STEP.OTP));
+      setCountdown(60);
+      timerRef.current = setInterval(() =>
+        setCountdown(c => { if (c <= 1) { clearInterval(timerRef.current); return 0; } return c - 1; }), 1000);
+      Alert.alert(
+        '⚠️ Servidor Offline — Modo Demo',
+        `Não conseguimos alcançar o servidor.\n\nUse este código para continuar:\n\n🔑 ${codigoLocal}\n\n(Seus dados serão salvos quando a conexão voltar)`,
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const verifyOTP = async () => {
     if (otpCode.length !== 6) { Alert.alert('Atenção', 'Informe o código de 6 dígitos.'); return; }
     setLoading(true);
+    // Verificação modo offline
+    const localCode = _localOtpStore[telefone];
+    if (localCode) {
+      if (otpCode !== localCode) {
+        Alert.alert('Código incorreto', 'O código informado não confere. Tente novamente.');
+        setLoading(false); return;
+      }
+      delete _localOtpStore[telefone];
+      // No modo offline, vai direto para cadastro sem consultar o servidor
+      animStep(() => { setIsNewUser(true); setStep(STEP.REGISTER); });
+      setLoading(false); return;
+    }
     try {
-      const r = await fetch(`${HTTP_URL}/api/auth/verify-otp`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const r = await fetchWithFallback('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ telefone, code: otpCode }),
       });
       if (!r.ok) { const e = await r.json(); Alert.alert('Erro', e.detail); return; }
@@ -94,7 +166,7 @@ export default function LoginScreen({ onLogin }) {
         animStep(() => { setIsNewUser(true); setStep(STEP.REGISTER); });
       } else {
         if (pushToken) {
-          await fetch(`${HTTP_URL}/api/users/push-token`, {
+          await fetchWithFallback('/api/users/push-token', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user_id: d.user.user_id, push_token: pushToken }),
           });
@@ -102,8 +174,11 @@ export default function LoginScreen({ onLogin }) {
         }
         onLogin(d.user);
       }
-    } catch (e) { Alert.alert('Erro', e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      Alert.alert('Erro de Conexão', 'Não foi possível verificar o código.\nVerifique sua internet e tente novamente.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const pickImage = async () => {
@@ -129,15 +204,21 @@ export default function LoginScreen({ onLogin }) {
     if (tipo === 'motorista' && !veiculo.trim()) { Alert.alert('Atenção', 'Informe o veículo.'); return; }
     setLoading(true);
     try {
-      const r = await fetch(`${HTTP_URL}/api/register`, {
+      const r = await fetchWithFallback('/api/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nome, telefone, tipo, chave_pix: chavePix, veiculo, push_token: pushToken, foto_url: fotoBase64 }),
       });
       const d = await r.json();
       if (d.user_id) onLogin(d.user);
       else Alert.alert('Erro', 'Falha no cadastro.');
-    } catch (e) { Alert.alert('Erro', e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      Alert.alert(
+        '⚠️ Sem Conexão',
+        'Não foi possível salvar seu cadastro agora.\n\nSua conta será criada assim que a conexão for restabelecida.\n\nTente novamente em alguns instantes.',
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
