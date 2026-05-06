@@ -222,7 +222,7 @@ class RateRequest(BaseModel):
 
 
 # ============================================================
-# SAÚDE
+# SAÚDE E DIAGNÓSTICO
 # ============================================================
 @app.get("/")
 def root():
@@ -232,6 +232,11 @@ def root():
         "drivers_online": len(online_drivers),
         "active_rides": len([r for r in active_rides.values() if r["status"] not in ("completed","cancelled")]),
     }
+
+@app.get("/api/health/ping")
+def ping():
+    """Endpoint leve para o app testar a conectividade antes do login."""
+    return {"ok": True, "ts": datetime.now().isoformat()}
 
 
 # ============================================================
@@ -272,6 +277,98 @@ async def verify_otp(data: OTPVerify):
             return {"user_id": user["user_id"], "user": user, "is_new": False}
         else:
             return {"user_id": None, "user": None, "is_new": True, "telefone": data.telefone}
+    finally:
+        await conn.close()
+
+
+
+# ============================================================
+# RECUPERAÇÃO / TROCA DE NÚMERO
+# Como o sistema usa OTP, o número de telefone É a identidade.
+# Se o usuário perder acesso ao número, ele solicita troca aqui.
+# O fluxo é: OTP no número NOVO + confirmar com nome cadastrado.
+# ============================================================
+
+class ChangePhoneRequest(BaseModel):
+    novo_telefone: str
+    nome_confirmacao: str  # usuário precisa saber o nome cadastrado
+
+class ChangePhoneVerify(BaseModel):
+    novo_telefone: str
+    nome_confirmacao: str
+    code: str
+
+@app.post("/api/auth/change-phone/request")
+async def change_phone_request(data: ChangePhoneRequest):
+    """Envia OTP para o NOVO número. Usuário precisa informar o nome cadastrado."""
+    conn = await get_db()
+    try:
+        # Verifica se o nome existe (sem revelar dados sensivelmente)
+        row = await conn.fetchrow(
+            "SELECT user_id FROM users WHERE LOWER(nome) LIKE LOWER($1)",
+            f"%{data.nome_confirmacao.strip()}%"
+        )
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail="Nome não encontrado. Verifique o nome exato que usou no cadastro."
+            )
+    finally:
+        await conn.close()
+
+    code = ''.join(random.choices(string.digits, k=6))
+    otp_store[f"change_{data.novo_telefone}"] = {
+        "code": code,
+        "expires_at": (datetime.now() + timedelta(minutes=10)).isoformat(),
+        "nome_confirmacao": data.nome_confirmacao,
+        "novo_telefone": data.novo_telefone,
+    }
+    logger.info(f"OTP de troca de número para {data.novo_telefone}: {code}")
+    return {
+        "message": "Código enviado para o novo número!",
+        "debug_code": code,
+        "expires_in": "10 minutos"
+    }
+
+@app.post("/api/auth/change-phone/verify")
+async def change_phone_verify(data: ChangePhoneVerify):
+    """Confirma o OTP e atualiza o telefone na conta."""
+    key = f"change_{data.novo_telefone}"
+    entry = otp_store.get(key)
+    if not entry:
+        raise HTTPException(status_code=400, detail="Solicite um novo código primeiro.")
+    if datetime.now() > datetime.fromisoformat(entry["expires_at"]):
+        otp_store.pop(key, None)
+        raise HTTPException(status_code=400, detail="Código expirado. Solicite um novo.")
+    if entry["code"] != data.code:
+        raise HTTPException(status_code=400, detail="Código incorreto.")
+
+    conn = await get_db()
+    try:
+        row = await conn.fetchrow(
+            "SELECT user_id, nome FROM users WHERE LOWER(nome) LIKE LOWER($1)",
+            f"%{data.nome_confirmacao.strip()}%"
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Conta não encontrada.")
+
+        # Verifica se o novo número já está em uso
+        existing = await conn.fetchrow("SELECT user_id FROM users WHERE telefone=$1", data.novo_telefone)
+        if existing and existing["user_id"] != row["user_id"]:
+            raise HTTPException(status_code=409, detail="Este número já está em uso por outra conta.")
+
+        await conn.execute(
+            "UPDATE users SET telefone=$1 WHERE user_id=$2",
+            data.novo_telefone, row["user_id"]
+        )
+        otp_store.pop(key, None)
+        user = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", row["user_id"])
+        logger.info(f"Telefone do usuário {row['user_id']} atualizado para {data.novo_telefone}")
+        return {
+            "status": "ok",
+            "message": "Número atualizado com sucesso! Faça login com o novo número.",
+            "user": dict(user)
+        }
     finally:
         await conn.close()
 

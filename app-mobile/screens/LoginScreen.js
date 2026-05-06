@@ -6,17 +6,39 @@ import {
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
+import Constants from 'expo-constants';
 
-// URLs candidatas — tenta cada uma em ordem
+
+// ============================================================
+// CONFIGURAÇÃO DE URL — ordem de prioridade
+// EXPO_PUBLIC_API_URL é injetada no BUILD do EAS (não no servidor)
+// Fallbacks garantem que o APK já distribuído funcione
+// ============================================================
+const BACKEND_HOST = 'p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io';
+
 const API_CANDIDATES = [
+  // 1. Variável de ambiente injetada no build (EAS Build / metro bundler)
   process.env.EXPO_PUBLIC_API_URL
     ? process.env.EXPO_PUBLIC_API_URL
         .replace('ws://', 'http://')
         .replace('wss://', 'https://')
         .replace('/ws', '')
     : null,
-  'http://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io',
+  // 2. URL salva no app.json > extra.apiUrl (mais confiável para APKs distribuídos)
+  Constants.expoConfig?.extra?.apiUrl || null,
+  // 3. HTTPS com domínio sslip.io (Coolify com SSL)
+  `https://${BACKEND_HOST}`,
+  // 4. HTTP direto ao IP:porta (bypass SSL, útil em redes corporativas)
+  `http://72.61.43.154:8000`,
 ].filter(Boolean);
+
+const WS_CANDIDATES = [
+  process.env.EXPO_PUBLIC_API_URL || null,
+  Constants.expoConfig?.extra?.wsUrl || null,
+  `wss://${BACKEND_HOST}/ws`,
+  `ws://72.61.43.154:8000/ws`,
+].filter(Boolean);
+
 
 // Tenta conectar em cada URL com timeout de 8s
 async function fetchWithFallback(path, options) {
@@ -65,7 +87,8 @@ async function registerForPushNotifications() {
   return token;
 }
 
-const STEP = { PHONE: 'phone', OTP: 'otp', REGISTER: 'register' };
+const STEP = { PHONE: 'phone', OTP: 'otp', REGISTER: 'register', RECOVER: 'recover', RECOVER_OTP: 'recover_otp' };
+
 
 export default function LoginScreen({ onLogin }) {
   const [step, setStep] = useState(STEP.PHONE);
@@ -80,8 +103,13 @@ export default function LoginScreen({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [pushToken, setPushToken] = useState(null);
+  // Recuperação de conta
+  const [recoverNome, setRecoverNome] = useState('');
+  const [recoverNovoTel, setRecoverNovoTel] = useState('');
+  const [recoverOtp, setRecoverOtp] = useState('');
   const fade = useRef(new Animated.Value(1)).current;
   const timerRef = useRef(null);
+
 
   useEffect(() => {
     registerForPushNotifications().then(setPushToken);
@@ -221,6 +249,49 @@ export default function LoginScreen({ onLogin }) {
     }
   };
 
+  // -------- RECUPERAÇÃO DE CONTA --------
+  const requestRecoverOTP = async () => {
+    const novoNum = sanitizeTelefone(recoverNovoTel);
+    if (!recoverNome.trim() || novoNum.length < 10) {
+      Alert.alert('Atenção', 'Preencha seu nome completo e o novo número com DDD.'); return;
+    }
+    setLoading(true);
+    try {
+      const r = await fetchWithFallback('/api/auth/change-phone/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ novo_telefone: novoNum, nome_confirmacao: recoverNome }),
+      });
+      const d = await r.json();
+      setRecoverNovoTel(novoNum);
+      animStep(() => setStep(STEP.RECOVER_OTP));
+      if (d.debug_code) {
+        Alert.alert('Código de Recuperação', `Código: ${d.debug_code}\n\n(Em produção chegará no novo número)`);
+      }
+    } catch (e) {
+      Alert.alert('Erro', 'Não foi possível enviar o código. Verifique sua conexão.');
+    } finally { setLoading(false); }
+  };
+
+  const confirmRecoverOTP = async () => {
+    if (recoverOtp.length !== 6) { Alert.alert('Atenção', 'Informe o código de 6 dígitos.'); return; }
+    setLoading(true);
+    try {
+      const r = await fetchWithFallback('/api/auth/change-phone/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ novo_telefone: recoverNovoTel, nome_confirmacao: recoverNome, code: recoverOtp }),
+      });
+      if (!r.ok) { const e = await r.json(); Alert.alert('Erro', e.detail); return; }
+      Alert.alert(
+        '✅ Conta Recuperada!',
+        `Seu acesso foi restaurado!\nFaça login com o novo número: ${recoverNovoTel}`,
+        [{ text: 'Fazer Login', onPress: () => { setTelefone(recoverNovoTel); animStep(() => setStep(STEP.PHONE)); } }]
+      );
+    } catch (e) {
+      Alert.alert('Erro', 'Falha na recuperação. Tente novamente.');
+    } finally { setLoading(false); }
+  };
+
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: '#064e3b' }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }} keyboardShouldPersistTaps="handled">
@@ -241,8 +312,13 @@ export default function LoginScreen({ onLogin }) {
                 <Text style={{ color: '#94a3b8', marginBottom: 20, fontSize: 13 }}>Informe seu WhatsApp para receber um código.</Text>
                 <Field label="Telefone (com DDD)" value={telefone} onChange={setTelefone} placeholder="Ex: 32999991234" keyboard="phone-pad" />
                 <Btn label="ENVIAR CÓDIGO →" onPress={requestOTP} loading={loading} />
+                <TouchableOpacity onPress={() => animStep(() => setStep(STEP.RECOVER))} style={{ marginTop: 18, alignItems: 'center' }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 13 }}>Troquei de número / Não consigo entrar</Text>
+                  <Text style={{ color: '#064e3b', fontWeight: '800', fontSize: 13, marginTop: 2 }}>Recuperar minha conta →</Text>
+                </TouchableOpacity>
               </>
             )}
+
 
             {step === STEP.OTP && (
               <>
@@ -260,6 +336,41 @@ export default function LoginScreen({ onLogin }) {
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => animStep(() => setStep(STEP.PHONE))} style={{ marginTop: 10, alignItems: 'center' }}>
                   <Text style={{ color: '#94a3b8' }}>← Trocar telefone</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* ===== RECUPERAÇÃO DE CONTA ===== */}
+            {step === STEP.RECOVER && (
+              <>
+                <Text style={{ fontSize: 20, fontWeight: '900', color: '#064e3b', marginBottom: 6 }}>Recuperar Conta</Text>
+                <Text style={{ color: '#94a3b8', marginBottom: 16, fontSize: 13 }}>Informe o nome exato do seu cadastro e seu novo número de WhatsApp.</Text>
+                <View style={{ backgroundColor: '#fefce8', borderRadius: 12, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderColor: '#f59e0b' }}>
+                  <Text style={{ color: '#78350f', fontSize: 12, fontWeight: '700' }}>Como funciona?</Text>
+                  <Text style={{ color: '#92400e', fontSize: 11, marginTop: 4, lineHeight: 16 }}>{'Nosso sistema usa OTP (código por WhatsApp) como senha.\nSe trocou de número, informe aqui o nome cadastrado e o novo número para recuperar o acesso.'}</Text>
+                </View>
+                <Field label="Nome completo cadastrado" value={recoverNome} onChange={setRecoverNome} placeholder="Ex: João Silva" />
+                <Field label="Novo número WhatsApp (com DDD)" value={recoverNovoTel} onChange={setRecoverNovoTel} placeholder="Ex: 32999991234" keyboard="phone-pad" />
+                <Btn label="ENVIAR CÓDIGO DE RECUPERAÇÃO" onPress={requestRecoverOTP} loading={loading} />
+                <TouchableOpacity onPress={() => animStep(() => setStep(STEP.PHONE))} style={{ marginTop: 14, alignItems: 'center' }}>
+                  <Text style={{ color: '#94a3b8' }}>← Voltar ao login</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {step === STEP.RECOVER_OTP && (
+              <>
+                <Text style={{ fontSize: 20, fontWeight: '900', color: '#064e3b', marginBottom: 6 }}>✅ Confirmar Recuperação</Text>
+                <Text style={{ color: '#94a3b8', marginBottom: 20, fontSize: 13 }}>Informe o código enviado para {recoverNovoTel}.</Text>
+                <TextInput
+                  value={recoverOtp} onChangeText={setRecoverOtp}
+                  placeholder="000000" placeholderTextColor="#cbd5e1"
+                  keyboardType="number-pad" maxLength={6} textAlign="center"
+                  style={{ backgroundColor: '#f0fdf4', borderWidth: 2, borderColor: '#064e3b', borderRadius: 16, paddingVertical: 18, fontSize: 32, fontWeight: '900', color: '#064e3b', letterSpacing: 10, marginBottom: 20 }}
+                />
+                <Btn label="CONFIRMAR E RECUPERAR ✓" onPress={confirmRecoverOTP} loading={loading} />
+                <TouchableOpacity onPress={() => animStep(() => setStep(STEP.RECOVER))} style={{ marginTop: 14, alignItems: 'center' }}>
+                  <Text style={{ color: '#94a3b8' }}>← Voltar</Text>
                 </TouchableOpacity>
               </>
             )}
