@@ -1,42 +1,43 @@
--- Habilita a extensão PostGIS caso ainda não esteja habilitada
-CREATE EXTENSION IF NOT EXISTS postgis;
+-- BibiMarcos v4 — Schema PostgreSQL
+-- Roda em qualquer Postgres 14+ (sem PostGIS necessário para este schema)
 
--- Criação de tipos ENUM para garantir integridade dos dados
-CREATE TYPE user_type AS ENUM ('motorista', 'passageiro');
-CREATE TYPE ride_status AS ENUM ('pendente', 'em_curso', 'finalizada');
-
--- 1. Tabela de Usuários
 CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    nome VARCHAR(255) NOT NULL,
-    tipo user_type NOT NULL,
-    chave_pix VARCHAR(255)
+    user_id         TEXT PRIMARY KEY,
+    nome            TEXT NOT NULL,
+    telefone        TEXT UNIQUE NOT NULL,
+    tipo            TEXT NOT NULL CHECK (tipo IN ('motorista', 'passageiro')),
+    chave_pix       TEXT DEFAULT '',
+    veiculo         TEXT DEFAULT '',
+    foto_url        TEXT DEFAULT '',
+    avaliacao       REAL DEFAULT 5.0,
+    total_corridas  INTEGER DEFAULT 0,
+    push_token      TEXT DEFAULT '',
+    created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Tabela de Localização dos Motoristas
-CREATE TABLE IF NOT EXISTS driver_locations (
-    id_motorista INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    coordenadas GEOGRAPHY(POINT, 4326) NOT NULL,
-    ultima_atualizacao TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Criação do Índice Espacial GIST na coluna de coordenadas para buscas ultra-rápidas
-CREATE INDEX IF NOT EXISTS idx_driver_locations_coordenadas 
-ON driver_locations USING GIST (coordenadas);
-
--- 3. Tabela de Corridas (Rides)
 CREATE TABLE IF NOT EXISTS rides (
-    id SERIAL PRIMARY KEY,
-    passageiro_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    motorista_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    status ride_status NOT NULL DEFAULT 'pendente',
-    origem GEOGRAPHY(POINT, 4326) NOT NULL,
-    destino GEOGRAPHY(POINT, 4326) NOT NULL,
-    valor_estimado DECIMAL(10, 2) NOT NULL,
-    criado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    ride_id             TEXT PRIMARY KEY,
+    passenger_id        TEXT REFERENCES users(user_id),
+    driver_id           TEXT REFERENCES users(user_id),
+    origin_lat          DOUBLE PRECISION,
+    origin_lng          DOUBLE PRECISION,
+    origin_name         TEXT,
+    dest_lat            DOUBLE PRECISION,
+    dest_lng            DOUBLE PRECISION,
+    dest_name           TEXT,
+    distance_meters     DOUBLE PRECISION,
+    fare                DOUBLE PRECISION,
+    status              TEXT DEFAULT 'searching',
+    payment_method      TEXT,
+    payment_preference  TEXT DEFAULT 'any',
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    accepted_at         TIMESTAMPTZ,
+    started_at          TIMESTAMPTZ,
+    completed_at        TIMESTAMPTZ,
+    cancelled_at        TIMESTAMPTZ
 );
 
--- Índices adicionais recomendados para otimizar consultas comuns nas corridas
-CREATE INDEX IF NOT EXISTS idx_rides_passageiro_id ON rides(passageiro_id);
-CREATE INDEX IF NOT EXISTS idx_rides_motorista_id ON rides(motorista_id);
-CREATE INDEX IF NOT EXISTS idx_rides_status ON rides(status);
+CREATE INDEX IF NOT EXISTS idx_rides_passenger ON rides(passenger_id);
+CREATE INDEX IF NOT EXISTS idx_rides_driver    ON rides(driver_id);
+CREATE INDEX IF NOT EXISTS idx_rides_status    ON rides(status);
+CREATE INDEX IF NOT EXISTS idx_users_telefone  ON users(telefone);

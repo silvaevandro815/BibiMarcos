@@ -23,6 +23,15 @@
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#064e3b",
+          "androidMode": "default",
+          "androidCollapsedTitle": "BibiMarcos"
+        }
+      ],
       "expo-task-manager",
       [
         "expo-build-properties",
