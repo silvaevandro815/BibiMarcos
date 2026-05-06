@@ -219,11 +219,17 @@ export default function LoginScreen({ onLogin }) {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.3,
+      quality: 0.1,   // comprimida ao máximo para evitar payloads grandes
       base64: true,
     });
     if (!result.canceled && result.assets[0].base64) {
-      setFotoBase64(`data:image/jpeg;base64,${result.assets[0].base64}`);
+      const b64 = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      // Limite de segurança no mobile: ~400KB em base64
+      if (result.assets[0].base64.length > 400_000) {
+        Alert.alert('Foto muito grande', 'Por favor escolha uma foto menor ou tire uma nova foto.');
+        return;
+      }
+      setFotoBase64(b64);
     }
   };
 
@@ -232,22 +238,44 @@ export default function LoginScreen({ onLogin }) {
     if (tipo === 'motorista' && !veiculo.trim()) { Alert.alert('Atenção', 'Informe o veículo.'); return; }
     setLoading(true);
     try {
+      // 1. Cadastrar sem foto (payload leve)
       const r = await fetchWithFallback('/api/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome, telefone, tipo, chave_pix: chavePix, veiculo, push_token: pushToken, foto_url: fotoBase64 }),
+        body: JSON.stringify({ nome, telefone, tipo, chave_pix: chavePix, veiculo, push_token: pushToken, foto_url: '' }),
       });
+      if (!r.ok) {
+        const err = await r.json();
+        Alert.alert('Erro no cadastro', err.detail || 'Tente novamente.'); return;
+      }
       const d = await r.json();
-      if (d.user_id) onLogin(d.user);
-      else Alert.alert('Erro', 'Falha no cadastro.');
+      if (!d.user_id) { Alert.alert('Erro', 'Falha no cadastro.'); return; }
+
+      // 2. Subir foto separadamente (só se o usuário escolheu uma)
+      if (fotoBase64 && d.user_id) {
+        try {
+          await fetchWithFallback('/api/users/photo', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: d.user_id, foto_base64: fotoBase64 }),
+          });
+          d.user.foto_url = fotoBase64;
+        } catch (photoErr) {
+          // Foto falhou, mas o cadastro já foi — pode adicionar foto depois
+          console.warn('Upload de foto falhou:', photoErr.message);
+        }
+      }
+
+      onLogin(d.user);
     } catch (e) {
       Alert.alert(
         '⚠️ Sem Conexão',
-        'Não foi possível salvar seu cadastro agora.\n\nSua conta será criada assim que a conexão for restabelecida.\n\nTente novamente em alguns instantes.',
+        'Não foi possível salvar seu cadastro.\n\nVerifique se você tem internet e tente novamente.',
+        [{ text: 'OK' }, { text: 'Tentar novamente', onPress: completeRegister }]
       );
     } finally {
       setLoading(false);
     }
   };
+
 
   // -------- RECUPERAÇÃO DE CONTA --------
   const requestRecoverOTP = async () => {

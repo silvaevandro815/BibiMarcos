@@ -4,6 +4,7 @@ import math
 import uuid
 import urllib.parse
 import logging
+import asyncio
 import random
 import string
 from datetime import datetime, timedelta
@@ -13,7 +14,25 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-app = FastAPI(title="BibiMarcos API v5 - Production UX")
+app = FastAPI(
+    title="BibiMarcos API v5 - Production",
+    # Aumentar limite do corpo da requisição para 50MB (fotos base64)
+)
+
+# Middleware de limite de tamanho ANTES do CORS
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import JSONResponse
+
+class LimitUploadSize(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if request.headers.get('content-length'):
+            size = int(request.headers['content-length'])
+            if size > 52_428_800:  # 50 MB
+                return JSONResponse({'detail': 'Payload muito grande. Use uma imagem menor.'}, status_code=413)
+        return await call_next(request)
+
+app.add_middleware(LimitUploadSize)
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,30 +55,66 @@ otp_store: Dict[str, dict] = {}
 
 
 # ============================================================
-# BANCO DE DADOS
+# BANCO DE DADOS — Connection Pool
 # ============================================================
+db_pool = None
+
 async def get_db():
-    return await asyncpg.connect(DATABASE_URL)
+    """Retorna uma conexão do pool. Não precisa fechar manualmente — use 'async with'."""
+    if db_pool is None:
+        # Fallback: conexão direta se o pool ainda não foi criado
+        return await asyncpg.connect(DATABASE_URL)
+    return await db_pool.acquire()
+
+async def release_db(conn):
+    """Libera a conexão de volta ao pool."""
+    if db_pool is not None:
+        await db_pool.release(conn)
+    else:
+        await release_db(conn)
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup():
+    global db_pool
     parsed_url = urllib.parse.urlparse(DATABASE_URL)
     db_name = parsed_url.path.lstrip('/')
     sys_url = parsed_url._replace(path='/postgres').geturl()
+
+    # 1. Auto-criar banco se não existir
+    for attempt in range(3):
+        try:
+            sys_conn = await asyncpg.connect(sys_url)
+            exists = await sys_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", db_name)
+            if not exists:
+                logger.info(f"Criando banco '{db_name}'...")
+                await sys_conn.execute(f'CREATE DATABASE "{db_name}"')
+            logger.info(f"✅ Banco '{db_name}' pronto.")
+            await sys_conn.close()
+            break
+        except Exception as e:
+            logger.error(f"Tentativa {attempt+1}/3 falhou: {e}")
+            if attempt == 2:
+                logger.error("Não foi possível provisionar o banco. Continuando sem auto-provisão.")
+            await asyncio.sleep(2)
+
+    # 2. Criar connection pool
     try:
-        sys_conn = await asyncpg.connect(sys_url)
-        exists = await sys_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", db_name)
-        if not exists:
-            logger.info(f"Banco de dados '{db_name}' não existe. Criando...")
-            await sys_conn.execute(f'CREATE DATABASE "{db_name}"')
-        logger.info(f"Banco de dados '{db_name}' detectado/criado com sucesso.")
-        await sys_conn.close()
+        db_pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            min_size=2,
+            max_size=10,
+            command_timeout=30,
+        )
+        logger.info("✅ Connection pool criado com sucesso.")
     except Exception as e:
-        logger.error(f"Erro auto-provisionamento: {e}")
+        logger.error(f"Falha ao criar pool: {e}")
 
     conn = await get_db()
     try:
@@ -102,15 +157,26 @@ async def startup():
                 cancelled_at    TIMESTAMPTZ
             );
         """)
-        # Adicionar colunas se as tabelas já existirem e não tiverem as colunas
-        try:
-            await conn.execute("ALTER TABLE rides ADD COLUMN passenger_rating INTEGER;")
-        except: pass
-        try:
-            await conn.execute("ALTER TABLE rides ADD COLUMN driver_rating INTEGER;")
-        except: pass
+        for col_sql in [
+            "ALTER TABLE rides ADD COLUMN IF NOT EXISTS passenger_rating INTEGER;",
+            "ALTER TABLE rides ADD COLUMN IF NOT EXISTS driver_rating INTEGER;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS push_token TEXT DEFAULT '';",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS foto_url TEXT DEFAULT '';",
+        ]:
+            try:
+                await conn.execute(col_sql)
+            except: pass
+        logger.info("✅ Tabelas verificadas/criadas com sucesso.")
     finally:
-        await conn.close()
+        await release_db(conn)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    global db_pool
+    if db_pool:
+        await db_pool.close()
+        logger.info("🔒 Connection pool fechado.")
 
 
 # ============================================================
@@ -278,7 +344,7 @@ async def verify_otp(data: OTPVerify):
         else:
             return {"user_id": None, "user": None, "is_new": True, "telefone": data.telefone}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 
@@ -314,7 +380,7 @@ async def change_phone_request(data: ChangePhoneRequest):
                 detail="Nome não encontrado. Verifique o nome exato que usou no cadastro."
             )
     finally:
-        await conn.close()
+        await release_db(conn)
 
     code = ''.join(random.choices(string.digits, k=6))
     otp_store[f"change_{data.novo_telefone}"] = {
@@ -370,7 +436,7 @@ async def change_phone_verify(data: ChangePhoneVerify):
             "user": dict(user)
         }
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ============================================================
@@ -389,16 +455,39 @@ async def register(data: RegisterModel):
             return {"user_id": u["user_id"], "user": u}
 
         user_id = str(uuid.uuid4())[:8]
+        # foto_url pode ser grande (base64) — armazena so se nao exceder 2MB
+        foto = data.foto_url or ""
+        if len(foto.encode('utf-8')) > 2_097_152:
+            foto = ""
+            logger.warning(f"foto_url muito grande ({len(foto)} bytes), ignorada no cadastro de {user_id}")
+
         await conn.execute("""
             INSERT INTO users (user_id, nome, telefone, tipo, chave_pix, veiculo, push_token, foto_url)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         """, user_id, data.nome, data.telefone, data.tipo,
-            data.chave_pix or "", data.veiculo or "", data.push_token or "", data.foto_url or "")
+            data.chave_pix or "", data.veiculo or "", data.push_token or "", foto)
 
         row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
         return {"user_id": user_id, "user": dict(row)}
     finally:
-        await conn.close()
+        await release_db(conn)
+
+
+class PhotoUpdate(BaseModel):
+    user_id: str
+    foto_base64: str
+
+@app.post("/api/users/photo")
+async def update_photo(data: PhotoUpdate):
+    if len(data.foto_base64.encode('utf-8')) > 5_242_880:
+        raise HTTPException(status_code=413, detail="Imagem muito grande. Use uma foto menor que 5MB.")
+    conn = await get_db()
+    try:
+        await conn.execute("UPDATE users SET foto_url=$1 WHERE user_id=$2", data.foto_base64, data.user_id)
+        return {"status": "ok"}
+    finally:
+        await release_db(conn)
+
 
 
 @app.post("/api/login")
@@ -415,7 +504,7 @@ async def login(data: dict):
             u["push_token"] = data["push_token"]
         return {"user_id": u["user_id"], "user": u}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 @app.post("/api/users/push-token")
@@ -425,7 +514,7 @@ async def update_push_token(data: PushTokenUpdate):
         await conn.execute("UPDATE users SET push_token=$1 WHERE user_id=$2", data.push_token, data.user_id)
         return {"status": "ok"}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 @app.get("/api/users/{user_id}")
@@ -437,7 +526,7 @@ async def get_user(user_id: str):
             raise HTTPException(status_code=404, detail="Usuário não encontrado")
         return dict(row)
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ============================================================
@@ -466,7 +555,7 @@ async def go_online(data: dict):
         }
         return {"status": "online"}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 @app.post("/api/drivers/offline")
@@ -521,7 +610,7 @@ async def request_ride(data: RideRequest):
         """, ride_id, data.passenger_id, data.origin_lat, data.origin_lng, data.origin_name,
             data.dest_lat, data.dest_lng, data.dest_name, data.distance_meters, fare, data.payment_preference)
     finally:
-        await conn.close()
+        await release_db(conn)
 
     ride = {
         "ride_id": ride_id,
@@ -582,7 +671,7 @@ async def accept_ride(ride_id: str, data: RideAction):
         )
         pass_row = await conn.fetchrow("SELECT push_token FROM users WHERE user_id=$1", ride["passenger_id"])
     finally:
-        await conn.close()
+        await release_db(conn)
 
     await notify(ride["passenger_id"], {"type": "ride_accepted", "ride": ride})
     if pass_row and pass_row["push_token"]:
@@ -607,7 +696,7 @@ async def driver_arrived(ride_id: str, data: RideAction):
         await conn.execute("UPDATE rides SET status='driver_arrived' WHERE ride_id=$1", ride_id)
         row = await conn.fetchrow("SELECT push_token FROM users WHERE user_id=$1", ride["passenger_id"])
     finally:
-        await conn.close()
+        await release_db(conn)
 
     await notify(ride["passenger_id"], {"type": "driver_arrived", "ride": ride})
     if row and row["push_token"]:
@@ -626,7 +715,7 @@ async def start_ride(ride_id: str, data: RideAction):
     try:
         await conn.execute("UPDATE rides SET status='in_ride', started_at=NOW() WHERE ride_id=$1", ride_id)
     finally:
-        await conn.close()
+        await release_db(conn)
 
     await notify(ride["passenger_id"], {"type": "ride_started", "ride": ride})
     return {"status": "in_ride"}
@@ -653,7 +742,7 @@ async def complete_ride(ride_id: str, data: CompleteRideAction):
         await conn.execute("UPDATE users SET total_corridas=total_corridas+1 WHERE user_id=$1", ride["passenger_id"])
         row = await conn.fetchrow("SELECT push_token FROM users WHERE user_id=$1", ride["passenger_id"])
     finally:
-        await conn.close()
+        await release_db(conn)
 
     await notify(ride["passenger_id"], {"type": "ride_completed", "ride": ride})
     if row and row["push_token"]:
@@ -678,7 +767,7 @@ async def cancel_ride(ride_id: str, data: RideAction):
     try:
         await conn.execute("UPDATE rides SET status='cancelled', cancelled_at=NOW() WHERE ride_id=$1", ride_id)
     finally:
-        await conn.close()
+        await release_db(conn)
 
     await notify(ride["passenger_id"], {"type": "ride_cancelled", "ride": ride})
     if ride.get("driver_id"):
@@ -714,7 +803,7 @@ async def rate_ride(ride_id: str, data: RateRequest):
             
         return {"status": "ok", "new_rating": media}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 @app.get("/api/rides/history/{user_id}")
@@ -729,7 +818,7 @@ async def get_history(user_id: str):
         """, user_id)
         return {"rides": [dict(r) for r in rows]}
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 @app.get("/api/rides/{ride_id}")
@@ -743,7 +832,7 @@ async def get_ride(ride_id: str):
             raise HTTPException(status_code=404, detail="Corrida não encontrada")
         return dict(row)
     finally:
-        await conn.close()
+        await release_db(conn)
 
 
 # ============================================================
