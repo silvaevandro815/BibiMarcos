@@ -38,6 +38,7 @@
         "expo-build-properties",
         {
           "android": {
+            "usesCleartextTraffic": true,
             "minSdkVersion": 26,
             "compileSdkVersion": 36,
             "targetSdkVersion": 36
@@ -50,6 +51,7 @@
           "foregroundServiceType": "location"
         }
       ],
+      "./plugins/withCleartextTraffic",
       "expo-asset"
     ],
     "android": {
