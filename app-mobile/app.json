@@ -32,6 +32,7 @@
           "androidCollapsedTitle": "BibiMarcos"
         }
       ],
+      "expo-image-picker",
       "expo-task-manager",
       [
         "expo-build-properties",
