@@ -60,18 +60,19 @@ otp_store: Dict[str, dict] = {}
 db_pool = None
 
 async def get_db():
-    """Retorna uma conexão do pool. Não precisa fechar manualmente — use 'async with'."""
+    """Retorna uma conexão do pool."""
     if db_pool is None:
         # Fallback: conexão direta se o pool ainda não foi criado
         return await asyncpg.connect(DATABASE_URL)
     return await db_pool.acquire()
 
 async def release_db(conn):
-    """Libera a conexão de volta ao pool."""
+    """Libera a conexão de volta ao pool (ou fecha diretamente se o pool não existe)."""
     if db_pool is not None:
         await db_pool.release(conn)
     else:
-        await release_db(conn)
+        # Sem pool: apenas fecha a conexão direta — sem recursão
+        await conn.close()
 
 
 logging.basicConfig(
