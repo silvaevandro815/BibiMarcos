@@ -83,41 +83,69 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup():
+    """
+    Startup RESILIENTE — o servidor SEMPRE sobe, mesmo se o Postgres falhar.
+    Isso é crítico para o healthcheck do Coolify funcionar.
+    Se o banco não estiver disponível, o app roda em modo degradado (in-memory).
+    """
+    global db_pool
+    logger.info("🚀 BibiMarcos API iniciando...")
+
+    # Tenta conectar ao banco com timeout total de 30s
+    # Se falhar, o servidor sobe MESMO ASSIM em modo degradado
+    try:
+        await _init_database()
+    except Exception as e:
+        logger.error(f"⚠️  Banco de dados não disponível no startup: {e}")
+        logger.warning("🟡 Servidor iniciando em MODO DEGRADADO (sem banco). Dados serão in-memory.")
+
+    logger.info("✅ BibiMarcos API pronta para receber requisições.")
+
+
+async def _init_database():
+    """Inicializa o banco de dados. Lançará exceção se falhar — tratado no startup."""
     global db_pool
     parsed_url = urllib.parse.urlparse(DATABASE_URL)
     db_name = parsed_url.path.lstrip('/')
     sys_url = parsed_url._replace(path='/postgres').geturl()
 
-    # 1. Auto-criar banco se não existir
+    # 1. Auto-criar banco se não existir (3 tentativas, 3s entre cada)
     for attempt in range(3):
         try:
-            sys_conn = await asyncpg.connect(sys_url)
-            exists = await sys_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", db_name)
+            sys_conn = await asyncio.wait_for(
+                asyncpg.connect(sys_url),
+                timeout=10.0
+            )
+            exists = await sys_conn.fetchval(
+                "SELECT 1 FROM pg_database WHERE datname = $1", db_name
+            )
             if not exists:
                 logger.info(f"Criando banco '{db_name}'...")
                 await sys_conn.execute(f'CREATE DATABASE "{db_name}"')
-            logger.info(f"✅ Banco '{db_name}' pronto.")
+            logger.info(f"✅ Banco '{db_name}' detectado/criado.")
             await sys_conn.close()
             break
         except Exception as e:
-            logger.error(f"Tentativa {attempt+1}/3 falhou: {e}")
-            if attempt == 2:
-                logger.error("Não foi possível provisionar o banco. Continuando sem auto-provisão.")
-            await asyncio.sleep(2)
+            logger.warning(f"Tentativa {attempt+1}/3 de conexão ao banco falhou: {e}")
+            if attempt < 2:
+                await asyncio.sleep(3)
+            else:
+                raise
 
     # 2. Criar connection pool
-    try:
-        db_pool = await asyncpg.create_pool(
+    db_pool = await asyncio.wait_for(
+        asyncpg.create_pool(
             DATABASE_URL,
-            min_size=2,
+            min_size=1,
             max_size=10,
             command_timeout=30,
-        )
-        logger.info("✅ Connection pool criado com sucesso.")
-    except Exception as e:
-        logger.error(f"Falha ao criar pool: {e}")
+        ),
+        timeout=15.0
+    )
+    logger.info("✅ Connection pool criado.")
 
-    conn = await get_db()
+    # 3. Criar/migrar tabelas
+    conn = await db_pool.acquire()
     try:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -133,7 +161,6 @@ async def startup():
                 push_token  TEXT DEFAULT '',
                 created_at  TIMESTAMPTZ DEFAULT NOW()
             );
-
             CREATE TABLE IF NOT EXISTS rides (
                 ride_id         TEXT PRIMARY KEY,
                 passenger_id    TEXT REFERENCES users(user_id),
@@ -166,10 +193,11 @@ async def startup():
         ]:
             try:
                 await conn.execute(col_sql)
-            except: pass
+            except Exception:
+                pass
         logger.info("✅ Tabelas verificadas/criadas com sucesso.")
     finally:
-        await release_db(conn)
+        await db_pool.release(conn)
 
 
 @app.on_event("shutdown")
@@ -296,14 +324,21 @@ def root():
     return {
         "status": "online",
         "app": "BibiMarcos API v5",
+        "db_connected": db_pool is not None,
+        "mode": "full" if db_pool else "degraded_in_memory",
         "drivers_online": len(online_drivers),
         "active_rides": len([r for r in active_rides.values() if r["status"] not in ("completed","cancelled")]),
     }
 
 @app.get("/api/health/ping")
 def ping():
-    """Endpoint leve para o app testar a conectividade antes do login."""
-    return {"ok": True, "ts": datetime.now().isoformat()}
+    """Endpoint leve para o app e Coolify testarem a conectividade."""
+    return {
+        "ok": True,
+        "ts": datetime.now().isoformat(),
+        "db": "connected" if db_pool else "unavailable",
+        "mode": "full" if db_pool else "degraded",
+    }
 
 
 # ============================================================

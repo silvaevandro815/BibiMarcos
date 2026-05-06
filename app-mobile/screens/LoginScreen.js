@@ -11,31 +11,35 @@ import Constants from 'expo-constants';
 
 // ============================================================
 // CONFIGURAÇÃO DE URL — ordem de prioridade
-// EXPO_PUBLIC_API_URL é injetada no BUILD do EAS (não no servidor)
-// Fallbacks garantem que o APK já distribuído funcione
+// O backend está em HTTP (Coolify sem SSL ativado)
 // ============================================================
 const BACKEND_HOST = 'p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io';
 
 const API_CANDIDATES = [
-  // 1. Variável de ambiente injetada no build (EAS Build / metro bundler)
+  // 1. Variável de ambiente injetada no build (EAS Build)
   process.env.EXPO_PUBLIC_API_URL
     ? process.env.EXPO_PUBLIC_API_URL
         .replace('ws://', 'http://')
-        .replace('wss://', 'https://')
+        .replace('wss://', 'http://')
         .replace('/ws', '')
     : null,
-  // 2. URL salva no app.json > extra.apiUrl (mais confiável para APKs distribuídos)
+  // 2. URL salva no app.json > extra.apiUrl
   Constants.expoConfig?.extra?.apiUrl || null,
-  // 3. HTTPS com domínio sslip.io (Coolify com SSL)
-  `https://${BACKEND_HOST}`,
-  // 4. HTTP direto ao IP:porta (bypass SSL, útil em redes corporativas)
+  // 3. HTTP com domínio sslip.io (Coolify sem SSL)
+  `http://${BACKEND_HOST}`,
+  // 4. IP direto como último recurso
   `http://72.61.43.154:8000`,
 ].filter(Boolean);
 
 const WS_CANDIDATES = [
-  process.env.EXPO_PUBLIC_API_URL || null,
+  process.env.EXPO_PUBLIC_API_URL
+    ? process.env.EXPO_PUBLIC_API_URL
+        .replace('http://', 'ws://')
+        .replace('https://', 'ws://')
+        .replace(/\/?$/, '/ws')
+    : null,
   Constants.expoConfig?.extra?.wsUrl || null,
-  `wss://${BACKEND_HOST}/ws`,
+  `ws://${BACKEND_HOST}/ws`,
   `ws://72.61.43.154:8000/ws`,
 ].filter(Boolean);
 

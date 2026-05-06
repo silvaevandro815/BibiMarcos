@@ -75,8 +75,8 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "apiUrl": "https://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io",
-      "wsUrl": "wss://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws",
+      "apiUrl": "http://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io",
+      "wsUrl": "ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws",
       "eas": {
         "projectId": "487c115e-cec4-4098-a64f-e63c74599a72"
       }

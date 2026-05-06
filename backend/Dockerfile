@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Instalar dependências do sistema necessárias para asyncpg (compilar extensões C)
+# Instalar dependências do sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
@@ -29,14 +29,15 @@ COPY . .
 # Expor porta
 EXPOSE 8000
 
-# Health check — Coolify usa isso para saber se o container está saudável
-# Aguarda 20s antes de começar (startup do FastAPI + conexão com Postgres)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+# Health check — período maior para dar tempo do Python e do Postgres iniciarem
+# start-period=40s: Coolify aguarda 40s antes de checar pela 1ª vez
+# interval=30s: verifica a cada 30s depois disso
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=5 \
     CMD curl -f http://localhost:8000/api/health/ping || exit 1
 
 # Iniciar com uvicorn
 # --host 0.0.0.0 é OBRIGATÓRIO para o Docker expor externamente
-# --workers 1 porque usamos asyncpg (connection pool já gerencia concorrência)
+# --timeout-keep-alive 75: mantém conexões WebSocket vivas
 CMD ["uvicorn", "main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
