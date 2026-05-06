@@ -2,6 +2,8 @@ import os
 import json
 import math
 import uuid
+import urllib.parse
+import logging
 import random
 import string
 from datetime import datetime, timedelta
@@ -40,8 +42,25 @@ async def get_db():
     return await asyncpg.connect(DATABASE_URL)
 
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 @app.on_event("startup")
 async def startup():
+    parsed_url = urllib.parse.urlparse(DATABASE_URL)
+    db_name = parsed_url.path.lstrip('/')
+    sys_url = parsed_url._replace(path='/postgres').geturl()
+    try:
+        sys_conn = await asyncpg.connect(sys_url)
+        exists = await sys_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", db_name)
+        if not exists:
+            logger.info(f"Banco de dados '{db_name}' não existe. Criando...")
+            await sys_conn.execute(f'CREATE DATABASE "{db_name}"')
+        logger.info(f"Banco de dados '{db_name}' detectado/criado com sucesso.")
+        await sys_conn.close()
+    except Exception as e:
+        logger.error(f"Erro auto-provisionamento: {e}")
+
     conn = await get_db()
     try:
         await conn.execute("""
