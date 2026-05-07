@@ -159,6 +159,22 @@ export default function App() {
       });
       const d = await r.json();
       setActiveRide(d.ride); setRideStatus('accepted');
+      
+      // Traçar rota verde do motorista até o passageiro
+      if (locationRef.current) {
+        const dLat = locationRef.current.latitude;
+        const dLng = locationRef.current.longitude;
+        const pLat = d.ride.origin_lat;
+        const pLng = d.ride.origin_lng;
+        fetch(`https://router.project-osrm.org/route/v1/driving/${dLng},${dLat};${pLng},${pLat}?overview=full&geometries=geojson`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.routes && data.routes.length > 0) {
+              const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]); // Leaflet usa [lat, lng]
+              webViewRef.current?.injectJavaScript(`drawRoute(${JSON.stringify(coords)});true;`);
+            }
+          }).catch(err => console.log('Erro ao traçar rota até o passageiro:', err));
+      }
     } catch { Alert.alert('Erro', 'Não foi possível aceitar.'); }
   };
 
@@ -226,12 +242,28 @@ export default function App() {
   };
 
   const driverAction = async (action) => {
-    if (!activeRide) return;
     try {
       await fetch(`${HTTP_URL}/api/rides/${activeRide.ride_id}/${action}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user.user_id })
       });
+      setRideStatus(action === 'arrived' ? 'driver_arrived' : 'in_ride');
+      
+      // Se iniciou a corrida, desenha a linha verde até o destino do passageiro
+      if (action === 'start' && locationRef.current && activeRide) {
+        const dLat = locationRef.current.latitude;
+        const dLng = locationRef.current.longitude;
+        const destLat = activeRide.dest_lat;
+        const destLng = activeRide.dest_lng;
+        fetch(`https://router.project-osrm.org/route/v1/driving/${dLng},${dLat};${destLng},${destLat}?overview=full&geometries=geojson`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.routes && data.routes.length > 0) {
+              const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+              webViewRef.current?.injectJavaScript(`drawRoute(${JSON.stringify(coords)});true;`);
+            }
+          }).catch(e => console.log(e));
+      }
     } catch {}
   };
 
