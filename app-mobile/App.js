@@ -48,6 +48,18 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch (e) {
+        console.log('Erro ao configurar áudio:', e);
+      }
+
+      try {
         const stored = await FileSystem.readAsStringAsync(USER_FILE);
         if (stored) {
           const u = JSON.parse(stored);
