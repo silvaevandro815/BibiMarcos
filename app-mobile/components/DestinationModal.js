@@ -9,7 +9,8 @@ const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving';
 const UA = 'BibiMarcos/3.0 (contato@bibimarcos.app)';
 
 export async function geocodeAddress(query) {
-  const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=5&countrycodes=br`;
+  const queryStr = query.toLowerCase().includes('muria') ? query : `${query}, Muriaé - MG`;
+  const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(queryStr)}&limit=5&countrycodes=br`;
   const r = await fetch(url, { headers: { 'User-Agent': UA } });
   return r.json();
 }
@@ -93,7 +94,7 @@ export default function DestinationModal({ visible, onClose, origin, onConfirm }
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Digite o endereço de destino..."
+              placeholder="Digite a rua ou bairro em Muriaé..."
               placeholderTextColor="#94a3b8"
               onSubmitEditing={search}
               returnKeyType="search"
