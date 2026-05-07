@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image } from 'react-native';
+import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import { Audio } from 'expo-av';
 
 import LoginScreen from './screens/LoginScreen';
 import ChatModal from './components/ChatModal';
@@ -51,9 +52,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (user) connectWS();
+    if (user) {
+      connectWS();
+      playHorn();
+    }
     return () => ws.current?.close();
   }, [user]);
+
+  const playHorn = async () => {
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-500.wav' },
+        { shouldPlay: true, volume: 1.0 }
+      );
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) {
+          sound.unloadAsync();
+        }
+      });
+    } catch (e) {
+      console.log('Erro ao tocar som:', e);
+    }
+  };
 
   const connectWS = () => {
     ws.current = new WebSocket(WS_URL);
@@ -69,9 +89,10 @@ export default function App() {
       case 'ride_request':
         if (user.tipo === 'motorista') {
           const r = data.ride;
+          playHorn();
           Alert.alert(
-            '🚗 Nova Corrida!',
-            `Passageiro: ${r.passenger_name} (⭐${r.passenger_avaliacao?.toFixed(1)})\nDe: ${r.origin_name}\nPara: ${r.dest_name}\nValor: R$ ${r.fare?.toFixed(2)}\nDistância: ${(r.driver_distance_meters / 1000).toFixed(1)}km`,
+            '🚗 Nova Solicitação de Corrida!',
+            `Passageiro: ${r.passenger_name} (⭐${r.passenger_avaliacao?.toFixed(1) || '5.0'})\nDe: ${r.origin_name}\nPara: ${r.dest_name}\nValor: R$ ${r.fare?.toFixed(2)}\nDistância: ${(r.driver_distance_meters / 1000).toFixed(1)}km`,
             [{ text: 'Recusar', style: 'cancel' }, { text: 'ACEITAR ✓', onPress: () => acceptRide(r.ride_id) }]
           );
         }
@@ -118,6 +139,9 @@ export default function App() {
         break;
       case 'chat':
         setChatMessages(p => [...p, data]);
+        if (!chatVisible) {
+          Alert.alert('Nova mensagem', `${data.sender === 'motorista' ? 'Motorista' : 'Passageiro'}: ${data.text}`);
+        }
         break;
       case 'ride_cancelled':
         Alert.alert('Corrida cancelada', 'A corrida foi cancelada.');
@@ -253,14 +277,28 @@ export default function App() {
   const submitRating = async (rating) => {
     if (!rideToRate) return;
     try {
-      const r = await fetch(`${HTTP_URL}/api/rides/${rideToRate.ride_id}/rate`, {
+      await fetch(`${HTTP_URL}/api/rides/${rideToRate.ride_id}/rate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user.user_id, rating })
       });
-      // Optionally update user rating here
     } catch {}
     setRatingVisible(false);
     setRideToRate(null);
+  };
+
+  const recenterGPS = () => {
+    if (location) {
+      webViewRef.current?.injectJavaScript(`map.setView([${location.latitude}, ${location.longitude}], 16); meMarker.setLatLng([${location.latitude}, ${location.longitude}]); true;`);
+    }
+  };
+
+  const handleWebViewMessage = (e) => {
+    try {
+      const data = JSON.parse(e.nativeEvent.data);
+      if (data.type === 'location_changed') {
+        setLocation({ latitude: data.lat, longitude: data.lng });
+      }
+    } catch {}
   };
 
   if (!user) return <LoginScreen onLogin={setUser} />;
@@ -269,30 +307,117 @@ export default function App() {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>body{margin:0;padding:0}#map{height:100vh;width:100vw}</style>
+<style>
+  body{margin:0;padding:0}
+  #map{height:100vh;width:100vw}
+  @keyframes pulse {
+    0% { transform: scale(0.6); opacity: 1; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+</style>
 </head><body><div id="map"></div><script>
-var map=L.map('map',{zoomControl:false,attributionControl:true}).setView([${location?.latitude||(-21.13)},${location?.longitude||(-42.37)}],15);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
-var meIcon=L.divIcon({className:'',html:'📍',iconSize:[30,30],iconAnchor:[15,30]});
-var meMarker=L.marker([${location?.latitude||(-21.13)},${location?.longitude||(-42.37)}],{icon:meIcon}).addTo(map);
-var driverMarker=null;
-var routeLine=null;
-window.updateMe=function(lat,lng){meMarker.setLatLng([lat,lng]);map.panTo([lat,lng]);};
-window.updateDriver=function(lat,lng,eta){
-  var etaHtml = eta ? '<div style="position:absolute;top:-28px;left:-20px;background:#064e3b;color:#fff;padding:4px 8px;border-radius:12px;font-size:12px;font-weight:900;white-space:nowrap;box-shadow:0 3px 6px rgba(0,0,0,0.3);border:2px solid #fff;">' + eta + '</div>' : '';
-  var iconHtml = '<div style="position:relative;">' + etaHtml + '<div style="font-size:36px;text-shadow:0 2px 5px rgba(0,0,0,0.3);">🚗</div></div>';
+var map = L.map('map',{zoomControl:false,attributionControl:false}).setView([${location?.latitude||(-21.13)},${location?.longitude||(-42.37)}],16);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',{attribution:''}).addTo(map);
+
+// Marcador do Passageiro/Minha Posição estilizado com efeito de drag-and-drop e pulso
+var meIcon = L.divIcon({
+  className: '',
+  html: '<div style="position:relative; width:46px; height:46px; display:flex; justify-content:center; align-items:center;">' +
+        '<div style="position:absolute; width:16px; height:16px; background:#064e3b; border:3.5px solid #fff; border-radius:50%; box-shadow:0 3px 8px rgba(0,0,0,0.4); z-index:2;"></div>' +
+        '<div style="position:absolute; width:36px; height:36px; border:2.5px solid #10b981; border-radius:50%; animation: pulse 1.8s infinite; opacity:0.75; z-index:1;"></div>' +
+        '</div>',
+  iconSize: [46, 46],
+  iconAnchor: [23, 23]
+});
+
+var meMarker = L.marker([${location?.latitude||(-21.13)},${location?.longitude||(-42.37)}],{icon:meIcon, draggable: true}).addTo(map);
+
+meMarker.on('dragend', function(e) {
+  var pos = e.target.getLatLng();
+  window.ReactNativeWebView.postMessage(JSON.stringify({
+    type: 'location_changed',
+    lat: pos.lat,
+    lng: pos.lng
+  }));
+});
+
+var driverMarker = null;
+var routeLine = null;
+var simulatedCars = [];
+
+window.updateMe = function(lat,lng){
+  meMarker.setLatLng([lat,lng]);
+  map.panTo([lat,lng]);
+};
+
+window.updateDriver = function(lat,lng,eta){
+  var etaHtml = eta ? '<div style="position:absolute;top:-32px;left:-16px;background:#064e3b;color:#fff;padding:5px 10px;border-radius:14px;font-size:11px;font-weight:900;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.3);border:2px solid #34d399;font-family:sans-serif;">' + eta + '</div>' : '';
+  var iconHtml = '<div style="position:relative;">' + etaHtml + '<div style="font-size:36px;filter:drop-shadow(0 4px 6px rgba(0,0,0,0.25));">🚗</div></div>';
   var newIcon = L.divIcon({className:'', html: iconHtml, iconSize:[36,36], iconAnchor:[18,18]});
   
-  if(!driverMarker){driverMarker=L.marker([lat,lng],{icon:newIcon}).addTo(map);}
-  else{driverMarker.setLatLng([lat,lng]); driverMarker.setIcon(newIcon);}
-  var grp=L.featureGroup([meMarker,driverMarker]);
+  if(!driverMarker){
+    driverMarker = L.marker([lat,lng],{icon:newIcon}).addTo(map);
+  } else {
+    driverMarker.setLatLng([lat,lng]);
+    driverMarker.setIcon(newIcon);
+  }
+  var grp = L.featureGroup([meMarker,driverMarker]);
   map.fitBounds(grp.getBounds(),{padding:[60,60]});
 };
-window.drawRoute=function(coords){
-  if(routeLine)map.removeLayer(routeLine);
-  routeLine=L.polyline(coords,{color:'#064e3b',weight:5,opacity:0.8}).addTo(map);
-  map.fitBounds(routeLine.getBounds(),{padding:[50,50]});
+
+window.drawRoute = function(coords){
+  if(routeLine) map.removeLayer(routeLine);
+  routeLine = L.polyline(coords,{color:'#064e3b',weight:6,opacity:0.85,lineCap:'round',lineJoin:'round'}).addTo(map);
+  map.fitBounds(routeLine.getBounds(),{padding:[60,60]});
 };
+
+// SIMULAÇÃO DE VEÍCULOS VERDES QUE SE MOVEM ALEATORIAMENTE PELO MAPA (MODO DEMO PREMIUM)
+function initSimulatedCars(lat, lng) {
+  simulatedCars.forEach(c => map.removeLayer(c.marker));
+  simulatedCars = [];
+  
+  for (var i = 0; i < 4; i++) {
+    var angle = Math.random() * Math.PI * 2;
+    var dist = 0.0015 + Math.random() * 0.003;
+    var cLat = lat + Math.sin(angle) * dist;
+    var cLng = lng + Math.cos(angle) * dist;
+    
+    var carIcon = L.divIcon({
+      className: '',
+      html: '<div style="font-size:32px; filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3)); transition: transform 0.8s linear;">🛺</div>',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+    
+    var marker = L.marker([cLat, cLng], {icon: carIcon}).addTo(map);
+    simulatedCars.push({
+      marker: marker,
+      lat: cLat,
+      lng: cLng,
+      angle: angle,
+      speed: 0.00007 + Math.random() * 0.00005
+    });
+  }
+}
+
+initSimulatedCars(${location?.latitude||(-21.13)}, ${location?.longitude||(-42.37)});
+
+setInterval(function() {
+  if (simulatedCars.length === 0) return;
+  simulatedCars.forEach(function(c) {
+    c.angle += (Math.random() - 0.5) * 0.5;
+    c.lat += Math.sin(c.angle) * c.speed;
+    c.lng += Math.cos(c.angle) * c.speed;
+    c.marker.setLatLng([c.lat, c.lng]);
+    
+    var deg = (c.angle * 180 / Math.PI) + 90;
+    var el = c.marker.getElement();
+    if (el) {
+      var div = el.querySelector('div');
+      if (div) div.style.transform = 'rotate(' + Math.round(deg) + 'deg)';
+    }
+  });
+}, 1000);
 </script></body></html>`;
 
   const statusLabel = { searching: '🔍 Buscando motorista...', accepted: '🚗 Motorista a caminho', driver_arrived: '✅ Motorista chegou!', in_ride: '🛣️ Em viagem' };
@@ -301,144 +426,164 @@ window.drawRoute=function(coords){
     <SafeAreaView style={{ flex: 1, backgroundColor: '#064e3b' }}>
       <StatusBar barStyle="light-content" backgroundColor="#064e3b" />
 
-      {/* Header */}
-      <View style={{ padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#064e3b' }}>
+      {/* Floating Header Glassmorphism Overlay */}
+      <View style={styles.floatingHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Image source={user.foto_url ? {uri: user.foto_url} : require('./assets/icon.png')} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 10, borderWidth: 2, borderColor: '#34d399' }} />
+          <Image source={user.foto_url ? {uri: user.foto_url} : require('./assets/icon.png')} style={styles.headerProfileImage} />
           <View>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 17 }}>BibiMarcos</Text>
-            <Text style={{ color: '#34d399', fontSize: 10, fontWeight: '700' }}>{user.nome.toUpperCase()} · ⭐ {(user.avaliacao||5.0).toFixed(1)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.headerTitle}>BibiMarcos</Text>
+              <View style={styles.liveBadge} />
+            </View>
+            <Text style={styles.headerSubtitle}>{user.nome.toUpperCase()} · ⭐ {(user.avaliacao||5.0).toFixed(1)}</Text>
           </View>
         </View>
         {user.tipo === 'motorista' && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#047857', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 }}>
-            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800', marginRight: 6 }}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
-            <Switch value={isOnline} onValueChange={toggleOnline} trackColor={{ false: '#334155', true: '#10b981' }} thumbColor={isOnline ? '#fff' : '#94a3b8'} style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }} />
+          <View style={styles.onlineSwitchContainer}>
+            <Text style={styles.onlineText}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
+            <Switch value={isOnline} onValueChange={toggleOnline} trackColor={{ false: '#1e293b', true: '#10b981' }} thumbColor={isOnline ? '#fff' : '#94a3b8'} style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }} />
           </View>
         )}
       </View>
 
-      {/* Mapa */}
+      {/* Map WebView Section */}
       <View style={{ flex: 1 }}>
         {location ? (
-          <WebView ref={webViewRef} originWhitelist={['*']} source={{ html: mapHtml }} style={{ flex: 1 }} javaScriptEnabled scrollEnabled={false} />
+          <WebView
+            ref={webViewRef}
+            originWhitelist={['*']}
+            source={{ html: mapHtml }}
+            style={{ flex: 1 }}
+            javaScriptEnabled
+            onMessage={handleWebViewMessage}
+            scrollEnabled={false}
+          />
         ) : (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+          <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#064e3b" />
-            <Text style={{ color: '#64748b', marginTop: 12 }}>Obtendo localização...</Text>
+            <Text style={styles.loadingText}>Obtendo localização...</Text>
           </View>
         )}
 
-        {activeRide && rideStatus !== 'searching' && (
-          <TouchableOpacity
-            style={{ position: 'absolute', bottom: 180, right: 18, backgroundColor: '#064e3b', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6 }}
-            onPress={() => setChatVisible(true)}
-          >
-            <Text style={{ fontSize: 26 }}>💬</Text>
-            {chatMessages.length > 0 && (
-              <View style={{ position: 'absolute', top: 6, right: 6, width: 12, height: 12, borderRadius: 6, backgroundColor: '#ef4444' }} />
-            )}
+        {/* Floating Actions on Map */}
+        <View style={styles.floatingMapActions}>
+          {/* Recenter Button */}
+          <TouchableOpacity style={styles.recenterButton} onPress={recenterGPS}>
+            <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#064e3b' }}>⌖</Text>
           </TouchableOpacity>
-        )}
+
+          {/* Active Ride Chat */}
+          {activeRide && rideStatus !== 'searching' && (
+            <TouchableOpacity style={styles.chatButton} onPress={() => setChatVisible(true)}>
+              <Text style={{ fontSize: 24 }}>💬</Text>
+              {chatMessages.length > 0 && (
+                <View style={styles.chatBadge} />
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Bottom Panel */}
-      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, elevation: 20, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 20 }}>
+      {/* Dynamic Bottom Sheet Panel */}
+      <View style={styles.bottomSheet}>
+        <View style={styles.sheetHandle} />
         
-        {/* Card do Motorista/Passageiro Expandível */}
         {activeRide && rideStatus !== 'searching' && (
-          <View style={{ backgroundColor: '#f8fafc', borderRadius: 16, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#e2e8f0' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ fontWeight: '900', fontSize: 16, color: '#064e3b' }}>{statusLabel[rideStatus] || '⏳ Processando...'}</Text>
-                {activeRide.fare && <Text style={{ color: '#10b981', fontWeight: '900', fontSize: 18 }}>R$ {parseFloat(activeRide.fare).toFixed(2)}</Text>}
+          <View style={styles.rideCard}>
+            <View style={styles.rideCardHeader}>
+                <Text style={styles.statusText}>{statusLabel[rideStatus] || '⏳ Processando...'}</Text>
+                {activeRide.fare && <Text style={styles.fareText}>R$ {parseFloat(activeRide.fare).toFixed(2)}</Text>}
             </View>
 
             {user.tipo === 'passageiro' && activeRide.driver_name && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 }}>
-                    <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginRight: 12 }}>
+                <View style={styles.driverInfoCard}>
+                    <View style={styles.driverAvatarContainer}>
                         {activeRide.driver_foto_url ? (
-                            <Image source={{ uri: activeRide.driver_foto_url }} style={{ width: '100%', height: '100%' }} />
+                            <Image source={{ uri: activeRide.driver_foto_url }} style={styles.fullImage} />
                         ) : (
-                            <Text style={{ fontSize: 24 }}>🚗</Text>
+                            <Text style={{ fontSize: 22 }}>🚗</Text>
                         )}
                     </View>
                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '800', fontSize: 16, color: '#1e293b' }}>{activeRide.driver_name}</Text>
-                        <Text style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{activeRide.driver_veiculo}</Text>
+                        <Text style={styles.driverName}>{activeRide.driver_name}</Text>
+                        <Text style={styles.driverCar}>{activeRide.driver_veiculo}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontWeight: '900', color: '#fbbf24', fontSize: 16 }}>⭐ {(activeRide.driver_avaliacao || 5.0).toFixed(1)}</Text>
+                        <Text style={styles.driverRating}>⭐ {(activeRide.driver_avaliacao || 5.0).toFixed(1)}</Text>
                     </View>
                 </View>
             )}
 
             {user.tipo === 'motorista' && activeRide.passenger_name && (
-                 <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 }}>
-                    <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginRight: 12 }}>
+                 <View style={styles.driverInfoCard}>
+                    <View style={styles.driverAvatarContainer}>
                         {activeRide.passenger_foto_url ? (
-                            <Image source={{ uri: activeRide.passenger_foto_url }} style={{ width: '100%', height: '100%' }} />
+                            <Image source={{ uri: activeRide.passenger_foto_url }} style={styles.fullImage} />
                         ) : (
-                            <Text style={{ fontSize: 24 }}>🧑</Text>
+                            <Text style={{ fontSize: 22 }}>🧑</Text>
                         )}
                     </View>
                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '800', fontSize: 16, color: '#1e293b' }}>{activeRide.passenger_name}</Text>
+                        <Text style={styles.driverName}>{activeRide.passenger_name}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontWeight: '900', color: '#fbbf24', fontSize: 16 }}>⭐ {(activeRide.passenger_avaliacao || 5.0).toFixed(1)}</Text>
+                        <Text style={styles.driverRating}>⭐ {(activeRide.passenger_avaliacao || 5.0).toFixed(1)}</Text>
                     </View>
                 </View>
             )}
 
-            {activeRide.dest_name && <Text style={{ color: '#64748b', marginTop: 12, fontSize: 13 }}>📍 Destino: {activeRide.dest_name}</Text>}
+            {activeRide.dest_name && <Text style={styles.destinationText}>📍 Destino: {activeRide.dest_name}</Text>}
           </View>
         )}
 
         {!activeRide && user.tipo === 'passageiro' && !searching && (
-          <TouchableOpacity style={{ backgroundColor: '#064e3b', padding: 18, borderRadius: 16, alignItems: 'center', elevation: 4 }} onPress={() => setDestVisible(true)}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>🗺️  PARA ONDE VAMOS?</Text>
+          <TouchableOpacity style={styles.primaryActionButton} onPress={() => setDestVisible(true)}>
+            <Text style={styles.primaryActionText}>🗺️  PARA ONDE VAMOS?</Text>
           </TouchableOpacity>
         )}
 
         {searching && (
-          <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+          <View style={styles.searchingContainer}>
             <ActivityIndicator color="#064e3b" size="large" />
-            <Text style={{ color: '#064e3b', fontWeight: '700', marginTop: 8 }}>Buscando motorista próximo...</Text>
-            <TouchableOpacity onPress={cancelRide} style={{ marginTop: 10 }}>
-              <Text style={{ color: '#ef4444', fontWeight: '700' }}>Cancelar</Text>
+            <Text style={styles.searchingText}>Buscando motorista mais próximo...</Text>
+            <TouchableOpacity onPress={cancelRide} style={styles.cancelLink}>
+              <Text style={styles.cancelLinkText}>Cancelar solicitação</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {activeRide && user.tipo === 'passageiro' && rideStatus !== 'completed' && (
-          <TouchableOpacity onPress={cancelRide} style={{ backgroundColor: '#fef2f2', padding: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#fecaca' }}>
-            <Text style={{ color: '#ef4444', fontWeight: '800' }}>✕  Cancelar corrida</Text>
+          <TouchableOpacity onPress={cancelRide} style={styles.cancelButton}>
+            <Text style={styles.cancelButtonText}>✕  Cancelar corrida</Text>
           </TouchableOpacity>
         )}
 
         {user.tipo === 'motorista' && !isOnline && !activeRide && (
-          <Text style={{ textAlign: 'center', color: '#94a3b8', fontWeight: '600', paddingVertical: 10 }}>Ligue o switch para ficar online e receber corridas</Text>
+          <Text style={styles.offlineHelperText}>Fique online para começar a receber chamadas em Muriaé</Text>
         )}
 
         {user.tipo === 'motorista' && isOnline && !activeRide && (
-          <Text style={{ textAlign: 'center', color: '#064e3b', fontWeight: '700', paddingVertical: 10 }}>✅ Online — aguardando chamadas...</Text>
+          <View style={styles.waitingContainer}>
+            <ActivityIndicator size="small" color="#10b981" style={{ marginRight: 8 }} />
+            <Text style={styles.waitingText}>Aguardando novas chamadas...</Text>
+          </View>
         )}
 
         {user.tipo === 'motorista' && activeRide && rideStatus === 'accepted' && (
-          <TouchableOpacity style={{ backgroundColor: '#f59e0b', padding: 16, borderRadius: 14, alignItems: 'center' }} onPress={() => driverAction('arrived')}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>📍  CHEGUEI AO PASSAGEIRO</Text>
+          <TouchableOpacity style={styles.driverArrivedButton} onPress={() => driverAction('arrived')}>
+            <Text style={styles.driverActionButtonText}>📍  CHEGUEI AO LOCAL</Text>
           </TouchableOpacity>
         )}
 
         {user.tipo === 'motorista' && activeRide && rideStatus === 'driver_arrived' && (
-          <TouchableOpacity style={{ backgroundColor: '#22c55e', padding: 16, borderRadius: 14, alignItems: 'center' }} onPress={() => driverAction('start')}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>▶  INICIAR CORRIDA</Text>
+          <TouchableOpacity style={styles.startRideButton} onPress={() => driverAction('start')}>
+            <Text style={styles.driverActionButtonText}>▶  INICIAR VIAGEM</Text>
           </TouchableOpacity>
         )}
 
         {user.tipo === 'motorista' && activeRide && rideStatus === 'in_ride' && (
-          <TouchableOpacity style={{ backgroundColor: '#064e3b', padding: 16, borderRadius: 14, alignItems: 'center' }} onPress={() => completeRide('pix')}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>🏁  FINALIZAR CORRIDA</Text>
+          <TouchableOpacity style={styles.completeRideButton} onPress={() => completeRide('pix')}>
+            <Text style={styles.driverActionButtonText}>🏁  FINALIZAR CORRIDA</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -450,3 +595,314 @@ window.drawRoute=function(coords){
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  floatingHeader: {
+    position: 'absolute',
+    top: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 45,
+    left: 14,
+    right: 14,
+    backgroundColor: 'rgba(6, 78, 59, 0.9)',
+    borderRadius: 20,
+    padding: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 10,
+    borderWidth: 1.5,
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  headerProfileImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: '#34d399',
+  },
+  headerTitle: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 19,
+    letterSpacing: -0.5,
+  },
+  liveBadge: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10b981',
+    marginLeft: 6,
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  headerSubtitle: {
+    color: '#a7f3d0',
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 1,
+    letterSpacing: 0.5,
+  },
+  onlineSwitchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(4, 120, 87, 0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 14,
+  },
+  onlineText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '900',
+    marginRight: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  loadingText: {
+    color: '#64748b',
+    marginTop: 12,
+    fontWeight: '700',
+  },
+  floatingMapActions: {
+    position: 'absolute',
+    bottom: 24,
+    right: 16,
+    gap: 12,
+    zIndex: 5,
+  },
+  recenterButton: {
+    backgroundColor: '#fff',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  chatButton: {
+    backgroundColor: '#064e3b',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  chatBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#ef4444',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  bottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 24,
+    paddingTop: 10,
+    paddingBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#cbd5e1',
+    borderRadius: 2.5,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  primaryActionButton: {
+    backgroundColor: '#064e3b',
+    paddingVertical: 18,
+    borderRadius: 18,
+    alignItems: 'center',
+    shadowColor: '#064e3b',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  primaryActionText: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 16,
+    letterSpacing: 0.5,
+  },
+  rideCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  rideCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statusText: {
+    fontWeight: '900',
+    fontSize: 16,
+    color: '#064e3b',
+  },
+  fareText: {
+    color: '#10b981',
+    fontWeight: '900',
+    fontSize: 19,
+  },
+  driverInfoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  driverAvatarContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    marginRight: 12,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+  },
+  fullImage: {
+    width: '100%',
+    height: '100%',
+  },
+  driverName: {
+    fontWeight: '800',
+    fontSize: 15,
+    color: '#1e293b',
+  },
+  driverCar: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 1,
+  },
+  driverRating: {
+    fontWeight: '900',
+    color: '#f59e0b',
+    fontSize: 15,
+  },
+  destinationText: {
+    color: '#64748b',
+    marginTop: 12,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  searchingContainer: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  searchingText: {
+    color: '#064e3b',
+    fontWeight: '800',
+    marginTop: 10,
+    fontSize: 15,
+  },
+  cancelLink: {
+    marginTop: 14,
+    padding: 6,
+  },
+  cancelLinkText: {
+    color: '#ef4444',
+    fontWeight: '800',
+    fontSize: 14,
+    textDecorationLine: 'underline',
+  },
+  cancelButton: {
+    backgroundColor: '#fef2f2',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  cancelButtonText: {
+    color: '#ef4444',
+    fontWeight: '800',
+  },
+  offlineHelperText: {
+    textAlign: 'center',
+    color: '#94a3b8',
+    fontWeight: '700',
+    paddingVertical: 10,
+    fontSize: 13,
+  },
+  waitingContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  waitingText: {
+    color: '#10b981',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  driverArrivedButton: {
+    backgroundColor: '#f59e0b',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  startRideButton: {
+    backgroundColor: '#10b981',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  completeRideButton: {
+    backgroundColor: '#064e3b',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  driverActionButtonText: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 16,
+    letterSpacing: 0.5,
+  },
+});
