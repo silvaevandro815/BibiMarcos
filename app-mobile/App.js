@@ -357,9 +357,20 @@ export default function App() {
     setRideToRate(null);
   };
 
-  const recenterGPS = () => {
+  const recenterGPS = async () => {
+    // 1. Move a câmera instantaneamente para a última posição conhecida (UX rápida)
     if (location) {
-      webViewRef.current?.injectJavaScript(`map.setView([${location.latitude}, ${location.longitude}], 16); meMarker.setLatLng([${location.latitude}, ${location.longitude}]); true;`);
+      webViewRef.current?.injectJavaScript(`map.setView([${location.latitude}, ${location.longitude}], 16); true;`);
+    }
+    // 2. Busca o GPS real do hardware atualizado para garantir precisão total
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const lat = loc.coords.latitude;
+      const lng = loc.coords.longitude;
+      setLocation({ latitude: lat, longitude: lng });
+      webViewRef.current?.injectJavaScript(`map.flyTo([${lat}, ${lng}], 16, {duration: 0.8}); meMarker.setLatLng([${lat}, ${lng}]); true;`);
+    } catch (e) {
+      console.log('Erro ao recentralizar:', e);
     }
   };
 
