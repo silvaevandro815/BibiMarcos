@@ -345,22 +345,40 @@ var driverMarker = null;
 var routeLine = null;
 var simulatedCars = [];
 
+var car3dData = 'data:image/png;base64,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';
+
+function getCarSize() {
+  var z = map.getZoom();
+  var base = 48;
+  if (z >= 18) return base * 1.5;
+  if (z === 17) return base * 1.25;
+  if (z === 16) return base;
+  if (z === 15) return base * 0.75;
+  if (z <= 14) return base * 0.5;
+  return base;
+}
+
+function getCarIcon(eta) {
+  var size = getCarSize();
+  var etaHtml = eta ? '<div style="position:absolute;top:-' + (size/2 + 16) + 'px;left:50%;transform:translateX(-50%);background:#064e3b;color:#fff;padding:5px 10px;border-radius:14px;font-size:11px;font-weight:900;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.3);border:2px solid #34d399;font-family:sans-serif;">' + eta + '</div>' : '';
+  var iconHtml = '<div style="position:relative;width:100%;height:100%;">' + etaHtml + '<img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 4px 6px rgba(0,0,0,0.25));" /></div>';
+  return L.divIcon({className:'', html: iconHtml, iconSize:[size, size], iconAnchor:[size/2, size/2]});
+}
+
 window.updateMe = function(lat,lng){
   meMarker.setLatLng([lat,lng]);
   map.panTo([lat,lng]);
 };
 
 window.updateDriver = function(lat,lng,eta){
-  var etaHtml = eta ? '<div style="position:absolute;top:-32px;left:-16px;background:#064e3b;color:#fff;padding:5px 10px;border-radius:14px;font-size:11px;font-weight:900;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.3);border:2px solid #34d399;font-family:sans-serif;">' + eta + '</div>' : '';
-  var iconHtml = '<div style="position:relative;">' + etaHtml + '<div style="font-size:36px;filter:drop-shadow(0 4px 6px rgba(0,0,0,0.25));">🚗</div></div>';
-  var newIcon = L.divIcon({className:'', html: iconHtml, iconSize:[36,36], iconAnchor:[18,18]});
-  
-  if(!driverMarker){
-    driverMarker = L.marker([lat,lng],{icon:newIcon}).addTo(map);
-  } else {
-    driverMarker.setLatLng([lat,lng]);
-    driverMarker.setIcon(newIcon);
+  if (!driverMarker) {
+    driverMarker = L.marker([lat,lng]);
   }
+  driverMarker.eta = eta;
+  
+  driverMarker.setLatLng([lat,lng]);
+  driverMarker.setIcon(getCarIcon(eta)).addTo(map);
+  
   var grp = L.featureGroup([meMarker,driverMarker]);
   map.fitBounds(grp.getBounds(),{padding:[60,60]});
 };
@@ -371,22 +389,36 @@ window.drawRoute = function(coords){
   map.fitBounds(routeLine.getBounds(),{padding:[60,60]});
 };
 
+// ATUALIZA TAMANHOS NO ZOOM
+map.on('zoomend', function() {
+  if (driverMarker) {
+    driverMarker.setIcon(getCarIcon(driverMarker.eta));
+  }
+  var size = getCarSize();
+  simulatedCars.forEach(function(c) {
+    var carHtml = '<div style="width:100%;height:100%;transition: transform 0.8s linear;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
+    c.marker.setIcon(L.divIcon({className:'', html: carHtml, iconSize: [size, size], iconAnchor: [size/2, size/2]}));
+  });
+});
+
 // SIMULAÇÃO DE VEÍCULOS VERDES QUE SE MOVEM ALEATORIAMENTE PELO MAPA (MODO DEMO PREMIUM)
 function initSimulatedCars(lat, lng) {
   simulatedCars.forEach(c => map.removeLayer(c.marker));
   simulatedCars = [];
   
+  var size = getCarSize();
   for (var i = 0; i < 4; i++) {
     var angle = Math.random() * Math.PI * 2;
     var dist = 0.0015 + Math.random() * 0.003;
     var cLat = lat + Math.sin(angle) * dist;
     var cLng = lng + Math.cos(angle) * dist;
     
+    var carHtml = '<div style="width:100%;height:100%;transition: transform 0.8s linear;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
     var carIcon = L.divIcon({
       className: '',
-      html: '<div style="font-size:32px; filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3)); transition: transform 0.8s linear;">🛺</div>',
-      iconSize: [32, 32],
-      iconAnchor: [16, 16]
+      html: carHtml,
+      iconSize: [size, size],
+      iconAnchor: [size/2, size/2]
     });
     
     var marker = L.marker([cLat, cLng], {icon: carIcon}).addTo(map);
