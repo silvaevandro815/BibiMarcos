@@ -565,6 +565,15 @@ async def get_user(user_id: str):
         await release_db(conn)
 
 
+@app.get("/api/users/{user_id}/active-ride")
+async def get_active_ride(user_id: str):
+    # Procura na memória por qualquer corrida não finalizada onde o usuário seja motorista ou passageiro
+    for r in active_rides.values():
+        if (r.get("passenger_id") == user_id or r.get("driver_id") == user_id) and r.get("status") not in ("completed", "cancelled"):
+            return r
+    return {}
+
+
 # ============================================================
 # MOTORISTAS
 # ============================================================
@@ -618,6 +627,20 @@ def get_nearby_drivers(lat: float, lng: float, radius: float = 10000):
 # ============================================================
 @app.post("/api/rides/request")
 async def request_ride(data: RideRequest):
+    # Garbage Collector: Prevenção de Memory Leak em produção
+    now = datetime.now()
+    to_delete = []
+    for k, v in active_rides.items():
+        if v.get("status") in ("completed", "cancelled"):
+            to_delete.append(k)
+        elif v.get("status") == "searching" and v.get("created_at"):
+            try:
+                if now - datetime.fromisoformat(v["created_at"]) > timedelta(minutes=30):
+                    to_delete.append(k)
+            except: pass
+    for k in to_delete:
+        active_rides.pop(k, None)
+
     available = []
     for uid, d in online_drivers.items():
         if d.get("status") == "in_ride":
@@ -662,6 +685,7 @@ async def request_ride(data: RideRequest):
         "distance_meters": data.distance_meters,
         "fare": fare,
         "status": "searching",
+        "created_at": datetime.now().isoformat()
     }
     active_rides[ride_id] = ride
 

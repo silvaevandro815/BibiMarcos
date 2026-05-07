@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 
 import LoginScreen from './screens/LoginScreen';
 import ChatModal from './components/ChatModal';
@@ -14,11 +15,13 @@ import RatingModal from './components/RatingModal';
 const WS_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws';
 const HTTP_URL = WS_URL.replace('ws://', 'http://').replace('wss://', 'https://').replace('/ws', '');
 const BG_TASK = 'BACKGROUND_LOCATION_TASK';
+const USER_FILE = FileSystem.documentDirectory + 'session.json';
 
 TaskManager.defineTask(BG_TASK, ({ data, error }) => { if (error || !data) return; });
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [appReady, setAppReady] = useState(false);
   const [location, setLocation] = useState(null);
   const [isOnline, setIsOnline] = useState(false);
   const [activeRide, setActiveRide] = useState(null);
@@ -44,6 +47,27 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      try {
+        const stored = await FileSystem.readAsStringAsync(USER_FILE);
+        if (stored) {
+          const u = JSON.parse(stored);
+          setUser(u);
+          
+          // Blindagem Vale do Silício: Recuperar corrida se o app fechou no meio da viagem
+          try {
+            const r = await fetch(`${HTTP_URL}/api/users/${u.user_id}/active-ride`);
+            const d = await r.json();
+            if (d && d.ride_id) {
+              setActiveRide(d);
+              setRideStatus(d.status);
+              if (u.tipo === 'motorista') {
+                setIsOnline(true);
+              }
+            }
+          } catch(e) {}
+        }
+      } catch {}
+      setAppReady(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
       const loc = await Location.getCurrentPositionAsync({});
@@ -51,12 +75,20 @@ export default function App() {
     })();
   }, []);
 
+  const reconnectTimer = useRef(null);
+  
   useEffect(() => {
     if (user) {
       connectWS();
       playHorn();
     }
-    return () => ws.current?.close();
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      if (ws.current) {
+        ws.current.onclose = null; // impede auto-reconnect ao desmontar
+        ws.current.close();
+      }
+    };
   }, [user]);
 
   const playHorn = async () => {
@@ -76,10 +108,17 @@ export default function App() {
   };
 
   const connectWS = () => {
+    clearTimeout(reconnectTimer.current);
+    if (ws.current) {
+      ws.current.onclose = null;
+      ws.current.close();
+    }
     ws.current = new WebSocket(WS_URL);
     ws.current.onopen = () => ws.current.send(JSON.stringify({ type: 'register', user_id: user.user_id }));
     ws.current.onmessage = (e) => { try { handleMsg(JSON.parse(e.data)); } catch {} };
-    ws.current.onclose = () => setTimeout(connectWS, 3000);
+    ws.current.onclose = () => {
+      reconnectTimer.current = setTimeout(connectWS, 3000);
+    };
   };
 
   const send = (obj) => ws.current?.readyState === WebSocket.OPEN && ws.current.send(JSON.stringify(obj));
@@ -333,7 +372,20 @@ export default function App() {
     } catch {}
   };
 
-  if (!user) return <LoginScreen onLogin={setUser} />;
+  if (!appReady) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: '#064e3b' }]}>
+        <ActivityIndicator size="large" color="#34d399" />
+      </View>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={async (u) => { 
+      setUser(u); 
+      try { await FileSystem.writeAsStringAsync(USER_FILE, JSON.stringify(u)); } catch {} 
+    }} />;
+  }
 
   const mapHtml = `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
