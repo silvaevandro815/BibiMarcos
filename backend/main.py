@@ -574,6 +574,25 @@ async def get_active_ride(user_id: str):
     return {}
 
 
+class LocationUpdateSchema(BaseModel):
+    user_id: str
+    lat: float
+    lng: float
+
+@app.post("/api/drivers/location-update")
+async def update_bg_location(data: LocationUpdateSchema):
+    uid = data.user_id
+    if uid in online_drivers:
+        online_drivers[uid].update({"lat": data.lat, "lng": data.lng})
+        # Notifica o passageiro se estiver em corrida
+        for ride in active_rides.values():
+            if ride.get("driver_id") == uid and ride.get("status") in ("accepted", "driver_arrived", "in_ride"):
+                await notify(ride["passenger_id"], {
+                    "type": "driver_location", "lat": data.lat, "lng": data.lng, "ride_id": ride["ride_id"]
+                })
+    return {"status": "ok"}
+
+
 # ============================================================
 # MOTORISTAS
 # ============================================================

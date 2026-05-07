@@ -17,7 +17,25 @@ const HTTP_URL = WS_URL.replace('ws://', 'http://').replace('wss://', 'https://'
 const BG_TASK = 'BACKGROUND_LOCATION_TASK';
 const USER_FILE = FileSystem.documentDirectory + 'session.json';
 
-TaskManager.defineTask(BG_TASK, ({ data, error }) => { if (error || !data) return; });
+TaskManager.defineTask(BG_TASK, async ({ data, error }) => {
+  if (error || !data) return;
+  const { locations } = data;
+  if (locations && locations[0]) {
+    try {
+      const loc = locations[0];
+      const stored = await FileSystem.readAsStringAsync(USER_FILE);
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (u && u.tipo === 'motorista') {
+          await fetch(`${HTTP_URL}/api/drivers/location-update`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: u.user_id, lat: loc.coords.latitude, lng: loc.coords.longitude })
+          });
+        }
+      }
+    } catch (e) {}
+  }
+});
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -197,6 +215,7 @@ export default function App() {
         break;
       case 'ride_completed':
         setRideToRate(data.ride);
+        webViewRef.current?.injectJavaScript(`if(routeLine) map.removeLayer(routeLine); if(driverMarker) map.removeLayer(driverMarker); driverMarker=null; true;`);
         if (user.tipo === 'passageiro') {
           setPaymentVisible(true);
         } else {
@@ -231,6 +250,7 @@ export default function App() {
       case 'ride_cancelled':
         Alert.alert('Corrida cancelada', 'A corrida foi cancelada.');
         setActiveRide(null); setRideStatus(''); setSearching(false); setChatMessages([]);
+        webViewRef.current?.injectJavaScript(`if(routeLine) map.removeLayer(routeLine); if(driverMarker) map.removeLayer(driverMarker); driverMarker=null; true;`);
         if (user.tipo === 'motorista' && isOnline) setIsOnline(true);
         break;
     }
@@ -282,8 +302,10 @@ export default function App() {
   };
 
   const startTracking = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return;
+    const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+    if (fgStatus !== 'granted') return;
+    const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+    
     locSub.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, timeInterval: 4000, distanceInterval: 8 },
       (loc) => {
@@ -293,8 +315,29 @@ export default function App() {
         webViewRef.current?.injectJavaScript(`updateMe(${lat},${lng});true;`);
       }
     );
+
+    if (bgStatus === 'granted') {
+      await Location.startLocationUpdatesAsync(BG_TASK, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 5000,
+        distanceInterval: 10,
+        showsBackgroundLocationIndicator: true,
+        foregroundService: {
+          notificationTitle: "BibiMarcos",
+          notificationBody: "Compartilhando viagem com o passageiro",
+          notificationColor: "#064e3b"
+        }
+      });
+    }
   };
-  const stopTracking = () => locSub.current?.remove();
+
+  const stopTracking = async () => {
+    locSub.current?.remove();
+    try {
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BG_TASK);
+      if (hasStarted) await Location.stopLocationUpdatesAsync(BG_TASK);
+    } catch(e) {}
+  };
 
   const requestRide = async (destInfo) => {
     setDestVisible(false);

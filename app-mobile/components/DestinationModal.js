@@ -10,7 +10,7 @@ const UA = 'BibiMarcos/3.0 (contato@bibimarcos.app)';
 
 export async function geocodeAddress(query) {
   const queryStr = query.toLowerCase().includes('muria') ? query : `${query}, Muriaé - MG`;
-  const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(queryStr)}&limit=5&countrycodes=br`;
+  const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(queryStr)}&limit=5&countrycodes=br&viewbox=-42.45,-21.05,-42.25,-21.25&bounded=1`;
   const r = await fetch(url, { headers: { 'User-Agent': UA } });
   return r.json();
 }
