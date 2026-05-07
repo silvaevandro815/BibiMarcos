@@ -480,7 +480,7 @@ map.on('zoomend', function() {
   }
   var size = getCarSize();
   simulatedCars.forEach(function(c) {
-    var carHtml = '<div style="width:100%;height:100%;transition: transform 0.8s linear;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
+    var carHtml = '<div style="width:100%;height:100%;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
     c.marker.setIcon(L.divIcon({className:'', html: carHtml, iconSize: [size, size], iconAnchor: [size/2, size/2]}));
   });
 });
@@ -502,7 +502,7 @@ function initSimulatedCars(lat, lng) {
       .then(function(data) {
         if (data.routes && data.routes[0] && data.routes[0].geometry.coordinates.length > 1) {
           var coords = data.routes[0].geometry.coordinates;
-          var carHtml = '<div style="width:100%;height:100%;transition: transform 0.8s linear;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
+          var carHtml = '<div style="width:100%;height:100%;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
           var carIcon = L.divIcon({ className: '', html: carHtml, iconSize: [size, size], iconAnchor: [size/2, size/2] });
           var startCoord = coords[0];
           var marker = L.marker([startCoord[1], startCoord[0]], {icon: carIcon}).addTo(map);
@@ -520,6 +520,19 @@ function initSimulatedCars(lat, lng) {
 
 initSimulatedCars(${location?.latitude||(-21.13)}, ${location?.longitude||(-42.37)});
 
+function getDistance(p1, p2) {
+  var R = 6371e3;
+  var phi1 = p1[1] * Math.PI/180;
+  var phi2 = p2[1] * Math.PI/180;
+  var deltaPhi = (p2[1]-p1[1]) * Math.PI/180;
+  var deltaLambda = (p2[0]-p1[0]) * Math.PI/180;
+  var a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
+          Math.cos(phi1) * Math.cos(phi2) *
+          Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 setInterval(function() {
   if (simulatedCars.length === 0) return;
   simulatedCars.forEach(function(c) {
@@ -527,7 +540,15 @@ setInterval(function() {
       var p1 = c.path[c.pathIndex]; // [lng, lat]
       var p2 = c.path[c.pathIndex + 1];
       
-      c.progress += 0.15; // Velocidade da simulação
+      if (!c.dist) c.dist = getDistance(p1, p2);
+      
+      if (c.dist < 0.1) {
+        c.progress = 1;
+      } else {
+        var stepPercentage = 0.5 / c.dist; // move 0.5 metros por tick (aprox 36 km/h em 50ms)
+        c.progress += stepPercentage;
+      }
+      
       if (c.progress >= 1) {
         c.progress = 0;
         c.pathIndex++;
@@ -535,6 +556,7 @@ setInterval(function() {
           c.path.reverse();
           c.pathIndex = 0;
         }
+        c.dist = null;
         p1 = c.path[c.pathIndex];
         p2 = c.path[c.pathIndex + 1];
       }
@@ -553,7 +575,7 @@ setInterval(function() {
       }
     }
   });
-}, 1000);
+}, 50);
 </script></body></html>`;
 
   const statusLabel = { searching: '🔍 Buscando motorista...', accepted: '🚗 Motorista a caminho', driver_arrived: '✅ Motorista chegou!', in_ride: '🛣️ Em viagem' };
