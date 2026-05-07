@@ -62,14 +62,15 @@
       "edgeToEdgeEnabled": false,
       "package": "com.bibimarcos.bibimarcosapp",
       "permissions": [
-        "INTERNET",
-        "RECEIVE_BOOT_COMPLETED",
-        "WAKE_LOCK",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION"
+        "android.permission.INTERNET",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECORD_AUDIO"
       ],
       "softwareKeyboardLayoutMode": "resize"
     },
@@ -79,7 +80,10 @@
     "extra": {
       "apiUrl": "http://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io",
       "wsUrl": "ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws",
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "98b23ec1-605b-4112-b30c-d14046bb9e50"
+      }
+    },
+    "owner": "bibimarcos2"
   }
 }

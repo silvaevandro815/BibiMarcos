@@ -62,7 +62,7 @@ export default function App() {
   const playHorn = async () => {
     try {
       const { sound } = await Audio.Sound.createAsync(
-        { uri: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-500.wav' },
+        require('./assets/horn.ogg'),
         { shouldPlay: true, volume: 1.0 }
       );
       sound.setOnPlaybackStatusUpdate((status) => {
@@ -401,7 +401,7 @@ map.on('zoomend', function() {
   });
 });
 
-// SIMULAÇÃO DE VEÍCULOS VERDES QUE SE MOVEM ALEATORIAMENTE PELO MAPA (MODO DEMO PREMIUM)
+// SIMULAÇÃO DE VEÍCULOS VERDES NAS RUAS (OSRM)
 function initSimulatedCars(lat, lng) {
   simulatedCars.forEach(c => map.removeLayer(c.marker));
   simulatedCars = [];
@@ -409,26 +409,28 @@ function initSimulatedCars(lat, lng) {
   var size = getCarSize();
   for (var i = 0; i < 4; i++) {
     var angle = Math.random() * Math.PI * 2;
-    var dist = 0.0015 + Math.random() * 0.003;
+    var dist = 0.002 + Math.random() * 0.004;
     var cLat = lat + Math.sin(angle) * dist;
     var cLng = lng + Math.cos(angle) * dist;
     
-    var carHtml = '<div style="width:100%;height:100%;transition: transform 0.8s linear;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
-    var carIcon = L.divIcon({
-      className: '',
-      html: carHtml,
-      iconSize: [size, size],
-      iconAnchor: [size/2, size/2]
-    });
-    
-    var marker = L.marker([cLat, cLng], {icon: carIcon}).addTo(map);
-    simulatedCars.push({
-      marker: marker,
-      lat: cLat,
-      lng: cLng,
-      angle: angle,
-      speed: 0.00007 + Math.random() * 0.00005
-    });
+    fetch('https://router.project-osrm.org/route/v1/driving/' + lng + ',' + lat + ';' + cLng + ',' + cLat + '?overview=full&geometries=geojson')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.routes && data.routes[0] && data.routes[0].geometry.coordinates.length > 1) {
+          var coords = data.routes[0].geometry.coordinates;
+          var carHtml = '<div style="width:100%;height:100%;transition: transform 0.8s linear;"><img src="' + car3dData + '" style="width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.3));" /></div>';
+          var carIcon = L.divIcon({ className: '', html: carHtml, iconSize: [size, size], iconAnchor: [size/2, size/2] });
+          var startCoord = coords[0];
+          var marker = L.marker([startCoord[1], startCoord[0]], {icon: carIcon}).addTo(map);
+          
+          simulatedCars.push({
+            marker: marker,
+            path: coords,
+            pathIndex: 0,
+            progress: 0
+          });
+        }
+      });
   }
 }
 
@@ -437,16 +439,34 @@ initSimulatedCars(${location?.latitude||(-21.13)}, ${location?.longitude||(-42.3
 setInterval(function() {
   if (simulatedCars.length === 0) return;
   simulatedCars.forEach(function(c) {
-    c.angle += (Math.random() - 0.5) * 0.5;
-    c.lat += Math.sin(c.angle) * c.speed;
-    c.lng += Math.cos(c.angle) * c.speed;
-    c.marker.setLatLng([c.lat, c.lng]);
-    
-    var deg = (c.angle * 180 / Math.PI) + 90;
-    var el = c.marker.getElement();
-    if (el) {
-      var div = el.querySelector('div');
-      if (div) div.style.transform = 'rotate(' + Math.round(deg) + 'deg)';
+    if (c.path && c.pathIndex < c.path.length - 1) {
+      var p1 = c.path[c.pathIndex]; // [lng, lat]
+      var p2 = c.path[c.pathIndex + 1];
+      
+      c.progress += 0.15; // Velocidade da simulação
+      if (c.progress >= 1) {
+        c.progress = 0;
+        c.pathIndex++;
+        if (c.pathIndex >= c.path.length - 1) {
+          c.path.reverse();
+          c.pathIndex = 0;
+        }
+        p1 = c.path[c.pathIndex];
+        p2 = c.path[c.pathIndex + 1];
+      }
+      
+      var currentLng = p1[0] + (p2[0] - p1[0]) * c.progress;
+      var currentLat = p1[1] + (p2[1] - p1[1]) * c.progress;
+      c.marker.setLatLng([currentLat, currentLng]);
+      
+      var angle = Math.atan2(p2[0] - p1[0], p2[1] - p1[1]);
+      var deg = (angle * 180 / Math.PI);
+      
+      var el = c.marker.getElement();
+      if (el) {
+        var div = el.querySelector('div');
+        if (div) div.style.transform = 'rotate(' + Math.round(deg) + 'deg)';
+      }
     }
   });
 }, 1000);
@@ -464,6 +484,7 @@ setInterval(function() {
           <Image source={user.foto_url ? {uri: user.foto_url} : require('./assets/icon.png')} style={styles.headerProfileImage} />
           <View>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Image source={require('./assets/icon.png')} style={{width: 18, height: 18, borderRadius: 4, marginRight: 6}} />
               <Text style={styles.headerTitle}>BibiMarcos</Text>
               <View style={styles.liveBadge} />
             </View>
