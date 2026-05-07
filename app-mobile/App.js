@@ -76,6 +76,8 @@ export default function App() {
   }, []);
 
   const reconnectTimer = useRef(null);
+  const pingInterval = useRef(null);
+  const pongTimeout = useRef(null);
   
   useEffect(() => {
     if (user) {
@@ -84,6 +86,8 @@ export default function App() {
     }
     return () => {
       clearTimeout(reconnectTimer.current);
+      clearInterval(pingInterval.current);
+      clearTimeout(pongTimeout.current);
       if (ws.current) {
         ws.current.onclose = null; // impede auto-reconnect ao desmontar
         ws.current.close();
@@ -109,14 +113,44 @@ export default function App() {
 
   const connectWS = () => {
     clearTimeout(reconnectTimer.current);
+    clearInterval(pingInterval.current);
+    clearTimeout(pongTimeout.current);
+    
     if (ws.current) {
       ws.current.onclose = null;
       ws.current.close();
     }
+    
     ws.current = new WebSocket(WS_URL);
-    ws.current.onopen = () => ws.current.send(JSON.stringify({ type: 'register', user_id: user.user_id }));
-    ws.current.onmessage = (e) => { try { handleMsg(JSON.parse(e.data)); } catch {} };
+    ws.current.onopen = () => {
+      ws.current.send(JSON.stringify({ type: 'register', user_id: user.user_id }));
+      // Ping a cada 15s para garantir que não virou zumbi
+      pingInterval.current = setInterval(() => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({ type: 'ping' }));
+          // Se não voltar o pong em 5s, a conexão está morta (dropamos)
+          pongTimeout.current = setTimeout(() => {
+            console.log("WS Zumbi detectado! Forçando reconexão...");
+            ws.current?.close();
+          }, 5000);
+        }
+      }, 15000);
+    };
+    
+    ws.current.onmessage = (e) => { 
+      try { 
+        const d = JSON.parse(e.data);
+        if (d.type === 'pong') {
+          clearTimeout(pongTimeout.current); // Bateu o coração, conexão está viva!
+          return;
+        }
+        handleMsg(d); 
+      } catch {} 
+    };
+    
     ws.current.onclose = () => {
+      clearInterval(pingInterval.current);
+      clearTimeout(pongTimeout.current);
       reconnectTimer.current = setTimeout(connectWS, 3000);
     };
   };
