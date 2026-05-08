@@ -6,6 +6,16 @@ import * as TaskManager from 'expo-task-manager';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 import LoginScreen from './screens/LoginScreen';
 import ChatModal from './components/ChatModal';
@@ -135,6 +145,20 @@ export default function App() {
         });
       } catch (e) {
         console.log('Erro ao configurar áudio:', e);
+      }
+
+      if (Platform.OS === 'android') {
+        try {
+          await Notifications.setNotificationChannelAsync('corridas', {
+            name: 'Corridas',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#10b981',
+            sound: 'default',
+          });
+        } catch (e) {
+          console.log('Erro ao criar canal de notificação:', e);
+        }
       }
 
       try {

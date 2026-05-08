@@ -74,12 +74,21 @@ function sanitizeTelefone(raw) {
 let _localOtpStore = {};
 
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
-});
+// Handler global foi movido para App.js para suportar persistência de sessão
 
 async function registerForPushNotifications() {
   if (!Device.isDevice) return null;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('corridas', {
+      name: 'Corridas',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#10b981',
+      sound: 'default',
+    });
+  }
+
   const { status: existing } = await Notifications.getPermissionsAsync();
   let finalStatus = existing;
   if (existing !== 'granted') {
