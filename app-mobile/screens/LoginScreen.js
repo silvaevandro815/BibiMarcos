@@ -87,7 +87,8 @@ async function registerForPushNotifications() {
     finalStatus = status;
   }
   if (finalStatus !== 'granted') return null;
-  const token = (await Notifications.getExpoPushTokenAsync()).data;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  const token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : {})).data;
   return token;
 }
 

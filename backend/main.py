@@ -99,7 +99,45 @@ async def startup():
         logger.error(f"⚠️  Banco de dados não disponível no startup: {e}")
         logger.warning("🟡 Servidor iniciando em MODO DEGRADADO (sem banco). Dados serão in-memory.")
 
+    # Inicia o GC periódico de memória em segundo plano
+    asyncio.create_task(_periodic_memory_cleanup())
     logger.info("✅ BibiMarcos API pronta para receber requisições.")
+
+
+async def _periodic_memory_cleanup():
+    """
+    Garbage Collector autônomo — roda a cada 5 minutos independente de corridas.
+    Previne acúmulo de active_rides concluídas e motoristas zumbis (offline sem avisar).
+    """
+    while True:
+        await asyncio.sleep(300)  # 5 minutos
+        try:
+            now = datetime.now()
+            # 1. Limpar corridas finalizadas ou expiradas do dicionário em memória
+            to_delete = [
+                k for k, v in active_rides.items()
+                if v.get("status") in ("completed", "cancelled")
+                or (v.get("status") == "searching" and v.get("created_at")
+                    and now - datetime.fromisoformat(v["created_at"]) > timedelta(minutes=30))
+            ]
+            for k in to_delete:
+                active_rides.pop(k, None)
+
+            # 2. Limpar motoristas zumbis (online há mais de 10min sem enviar GPS)
+            zombie_drivers = [
+                uid for uid, d in online_drivers.items()
+                if d.get("last_seen") and now - datetime.fromisoformat(d["last_seen"]) > timedelta(minutes=10)
+                and d.get("status") == "available"
+            ]
+            for uid in zombie_drivers:
+                online_drivers.pop(uid, None)
+                logger.warning(f"🧟 Motorista zumbi removido: {uid}")
+
+            if to_delete or zombie_drivers:
+                logger.info(f"🧹 GC periódico: {len(to_delete)} corridas + {len(zombie_drivers)} motoristas zumbis removidos.")
+        except Exception as e:
+            logger.error(f"Erro no GC periódico: {e}")
+
 
 
 async def _init_database():
@@ -583,7 +621,7 @@ class LocationUpdateSchema(BaseModel):
 async def update_bg_location(data: LocationUpdateSchema):
     uid = data.user_id
     if uid in online_drivers:
-        online_drivers[uid].update({"lat": data.lat, "lng": data.lng})
+        online_drivers[uid].update({"lat": data.lat, "lng": data.lng, "last_seen": datetime.now().isoformat()})
         # Notifica o passageiro se estiver em corrida
         for ride in active_rides.values():
             if ride.get("driver_id") == uid and ride.get("status") in ("accepted", "driver_arrived", "in_ride"):
@@ -937,7 +975,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 uid = payload.get("user_id", user_id)
                 lat, lng = payload.get("lat"), payload.get("lng")
                 if uid and lat and lng and uid in online_drivers:
-                    online_drivers[uid].update({"lat": lat, "lng": lng})
+                    online_drivers[uid].update({"lat": lat, "lng": lng, "last_seen": datetime.now().isoformat()})
                     for ride in active_rides.values():
                         if ride.get("driver_id") == uid and ride["status"] in ("accepted","driver_arrived","in_ride"):
                             await notify(ride["passenger_id"], {"type":"driver_location","lat":lat,"lng":lng,"ride_id":ride["ride_id"]})

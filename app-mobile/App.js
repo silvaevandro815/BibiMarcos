@@ -988,7 +988,7 @@ setInterval(function() {
       </View>
 
       <ChatModal visible={chatVisible} onClose={() => setChatVisible(false)} messages={chatMessages} input={chatInput} onChangeInput={setChatInput} onSend={sendChat} isDriver={user.tipo === 'motorista'} />
-      <PaymentModal visible={paymentVisible} ride={rideToRate || activeRide} onClose={() => setPaymentVisible(false)} onConfirm={(method) => { setPaymentVisible(false); completeRide(method); }} />
+      <PaymentModal visible={paymentVisible} ride={activeRide} onClose={() => setPaymentVisible(false)} onConfirm={(method) => { setPaymentVisible(false); completeRide(method); }} />
       <DestinationModal visible={destVisible} onClose={() => setDestVisible(false)} origin={location} onConfirm={requestRide} />
       <RatingModal visible={ratingVisible} onClose={() => setRatingVisible(false)} onSubmit={submitRating} isDriver={user.tipo === 'motorista'} />
     </SafeAreaView>

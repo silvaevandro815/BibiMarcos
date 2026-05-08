@@ -13,6 +13,11 @@ export default function RatingModal({ visible, onClose, onSubmit, isDriver }) {
     setRating(0);
   };
 
+  const handleSkip = () => {
+    setRating(0); // Sempre resetar antes de fechar
+    onClose();
+  };
+
   if (!visible) return null;
 
   return (
@@ -39,7 +44,7 @@ export default function RatingModal({ visible, onClose, onSubmit, isDriver }) {
           >
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 1 }}>ENVIAR AVALIAÇÃO</Text>}
           </TouchableOpacity>
-          <TouchableOpacity onPress={onClose} style={{ marginTop: 20 }}>
+          <TouchableOpacity onPress={handleSkip} style={{ marginTop: 20 }}>
             <Text style={{ color: '#94a3b8', fontWeight: '800', fontSize: 15 }}>Pular</Text>
           </TouchableOpacity>
         </View>
