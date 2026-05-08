@@ -152,9 +152,11 @@ export default function App() {
           await Notifications.setNotificationChannelAsync('corridas', {
             name: 'Corridas',
             importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
+            vibrationPattern: [0, 250, 250, 250, 250, 250],
             lightColor: '#10b981',
             sound: 'default',
+            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+            bypassDnd: true,
           });
         } catch (e) {
           console.log('Erro ao criar canal de notificação:', e);

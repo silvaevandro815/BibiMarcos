@@ -29,7 +29,8 @@
           "icon": "./assets/icon.png",
           "color": "#064e3b",
           "androidMode": "default",
-          "androidCollapsedTitle": "BibiMarcos"
+          "androidCollapsedTitle": "BibiMarcos",
+          "useNextNotificationsApi": true
         }
       ],
       "expo-image-picker",
@@ -71,7 +72,9 @@
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.VIBRATE",
+        "android.permission.USE_FULL_SCREEN_INTENT"
       ],
       "softwareKeyboardLayoutMode": "resize"
     },
