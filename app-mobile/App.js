@@ -193,7 +193,7 @@ export default function App() {
   useEffect(() => {
     if (user) {
       connectWS();
-      playHorn();
+      // NOTA: playHorn() removido daqui — deve tocar APENAS em 'ride_request', não no login
     }
     return () => {
       clearTimeout(reconnectTimer.current);
@@ -332,7 +332,8 @@ export default function App() {
         Alert.alert('Corrida cancelada', 'A corrida foi cancelada.');
         setActiveRide(null); setRideStatus(''); setSearching(false); setChatMessages([]);
         webViewRef.current?.injectJavaScript(`if(routeLine) map.removeLayer(routeLine); if(driverMarker) map.removeLayer(driverMarker); driverMarker=null; true;`);
-        if (user.tipo === 'motorista' && isOnline) setIsOnline(true);
+        // Motorista volta a ficar ONLINE aguardando novas chamadas (não deve ir Offline automaticamente)
+        // O estado isOnline não muda — ele já estava online antes de aceitar a corrida
         break;
     }
   };
@@ -421,6 +422,11 @@ export default function App() {
   };
 
   const requestRide = async (destInfo) => {
+    // Guard: sem localização não podemos calcular origem
+    if (!location) {
+      Alert.alert('Localização indisponível', 'Aguarde o GPS obter sua posição e tente novamente.');
+      return;
+    }
     setDestVisible(false);
     setSearching(true);
     try {
@@ -441,14 +447,20 @@ export default function App() {
         Alert.alert('Aviso', e.detail || 'Nenhum motorista disponível.'); setSearching(false);
       } else {
         const d = await r.json();
-        setActiveRide({ ride_id: d.ride_id, fare: d.fare, dest_name: destInfo.dest_name, origin_name: 'Minha Localização' });
+        setActiveRide({
+          ride_id: d.ride_id,
+          fare: d.fare,
+          dest_name: destInfo.dest_name,
+          origin_name: 'Minha Localização',
+          payment_preference: destInfo.payment_preference || 'PIX', // Preservado para o PaymentModal
+        });
         setRideStatus('searching');
         if (destInfo.geometry) {
           const coords = destInfo.geometry.map(([lng, lat]) => [lat, lng]);
           webViewRef.current?.injectJavaScript(`drawRoute(${JSON.stringify(coords)});true;`);
         }
       }
-    } catch (e) { Alert.alert('Erro', e.message); setSearching(false); }
+    } catch (e) { Alert.alert('Erro de conexão', 'Verifique sua internet e tente novamente.'); setSearching(false); }
   };
 
   const driverAction = async (action) => {
@@ -800,7 +812,14 @@ setInterval(function() {
             onPress={() => Alert.alert('Sair da conta?', 'Tem certeza que deseja sair?', [
               { text: 'Cancelar', style: 'cancel' },
               { text: 'Sair', style: 'destructive', onPress: async () => {
+                // Para o tracking de GPS antes de limpar a sessão (evita leak de dados)
+                await stopTracking();
                 await clearResilientSession();
+                // Fecha o WebSocket para não tentar reconectar com usuário nulo
+                if (ws.current) { ws.current.onclose = null; ws.current.close(); }
+                clearTimeout(reconnectTimer.current);
+                clearInterval(pingInterval.current);
+                // Limpa todo o estado de corrida
                 setUser(null);
                 setActiveRide(null);
                 setRideStatus('');
@@ -962,7 +981,7 @@ setInterval(function() {
         )}
 
         {user.tipo === 'motorista' && activeRide && rideStatus === 'in_ride' && (
-          <TouchableOpacity style={styles.completeRideButton} onPress={() => completeRide('pix')}>
+          <TouchableOpacity style={styles.completeRideButton} onPress={() => driverAction('complete')}>
             <Text style={styles.driverActionButtonText}>🏁  FINALIZAR CORRIDA</Text>
           </TouchableOpacity>
         )}
