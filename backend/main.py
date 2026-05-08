@@ -703,6 +703,7 @@ async def request_ride(data: RideRequest):
         "dest_name": data.dest_name,
         "distance_meters": data.distance_meters,
         "fare": fare,
+        "payment_preference": data.payment_preference,
         "status": "searching",
         "created_at": datetime.now().isoformat()
     }
@@ -713,7 +714,7 @@ async def request_ride(data: RideRequest):
         await send_push(
             d.get("push_token", ""),
             "🚗 Nova corrida disponível!",
-            f"Passageiro: ⭐{passenger_avaliacao:.1f} • R$ {fare:.2f} • {dist/1000:.1f}km",
+            f"{data.payment_preference} • R$ {fare:.2f} • {dist/1000:.1f}km até você",
             {"type": "ride_request", "ride_id": ride_id}
         )
 

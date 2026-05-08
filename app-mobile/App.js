@@ -109,6 +109,28 @@ export default function App() {
   const pingInterval = useRef(null);
   const pongTimeout = useRef(null);
   
+  // ===============================================
+  // UBER DISPATCH ENGINE: TIMEOUT DE BUSCA
+  // ===============================================
+  useEffect(() => {
+    let timeout;
+    if (searching && rideStatus === 'searching' && activeRide && user?.tipo === 'passageiro') {
+      timeout = setTimeout(() => {
+        Alert.alert('Tempo esgotado', 'Nenhum motorista aceitou a corrida no momento. Tente novamente!');
+        // Cancela silenciosamente a corrida presa no backend
+        fetch(`${HTTP_URL}/api/rides/${activeRide.ride_id}/cancel`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.user_id })
+        }).catch(() => {});
+        setActiveRide(null);
+        setRideStatus('');
+        setSearching(false);
+        webViewRef.current?.injectJavaScript(`if(routeLine) map.removeLayer(routeLine); if(driverMarker) map.removeLayer(driverMarker); driverMarker=null; true;`);
+      }, 60000); // 60 segundos buscando
+    }
+    return () => clearTimeout(timeout);
+  }, [searching, rideStatus, activeRide, user]);
+
   useEffect(() => {
     if (user) {
       connectWS();
@@ -195,7 +217,7 @@ export default function App() {
           playHorn();
           Alert.alert(
             '🚗 Nova Solicitação de Corrida!',
-            `Passageiro: ${r.passenger_name} (⭐${r.passenger_avaliacao?.toFixed(1) || '5.0'})\nDe: ${r.origin_name}\nPara: ${r.dest_name}\nValor: R$ ${r.fare?.toFixed(2)}\nDistância: ${(r.driver_distance_meters / 1000).toFixed(1)}km`,
+            `Passageiro: ${r.passenger_name} (⭐${r.passenger_avaliacao?.toFixed(1) || '5.0'})\nDe: ${r.origin_name}\nPara: ${r.dest_name}\nPagamento: ${r.payment_preference || 'PIX'}\nValor: R$ ${r.fare?.toFixed(2)}\nDistância: ${(r.driver_distance_meters / 1000).toFixed(1)}km`,
             [{ text: 'Recusar', style: 'cancel' }, { text: 'ACEITAR ✓', onPress: () => acceptRide(r.ride_id) }]
           );
         }
@@ -352,6 +374,7 @@ export default function App() {
           dest_lat: destInfo.dest_lat, dest_lng: destInfo.dest_lng,
           dest_name: destInfo.dest_name,
           distance_meters: destInfo.distance_meters,
+          payment_preference: destInfo.payment_preference || 'PIX'
         })
       });
       if (!r.ok) {
@@ -829,15 +852,25 @@ setInterval(function() {
         )}
 
         {user.tipo === 'motorista' && activeRide && rideStatus === 'accepted' && (
-          <TouchableOpacity style={styles.driverArrivedButton} onPress={() => driverAction('arrived')}>
-            <Text style={styles.driverActionButtonText}>📍  CHEGUEI AO LOCAL</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16 }}>
+            <TouchableOpacity style={[styles.driverArrivedButton, { flex: 2 }]} onPress={() => driverAction('arrived')}>
+              <Text style={styles.driverActionButtonText}>📍 CHEGUEI AO LOCAL</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.driverArrivedButton, { flex: 1, backgroundColor: '#ef4444' }]} onPress={cancelRide}>
+              <Text style={styles.driverActionButtonText}>✕ CANCELAR</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {user.tipo === 'motorista' && activeRide && rideStatus === 'driver_arrived' && (
-          <TouchableOpacity style={styles.startRideButton} onPress={() => driverAction('start')}>
-            <Text style={styles.driverActionButtonText}>▶  INICIAR VIAGEM</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16 }}>
+            <TouchableOpacity style={[styles.startRideButton, { flex: 2 }]} onPress={() => driverAction('start')}>
+              <Text style={styles.driverActionButtonText}>▶ INICIAR VIAGEM</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.startRideButton, { flex: 1, backgroundColor: '#ef4444' }]} onPress={cancelRide}>
+              <Text style={styles.driverActionButtonText}>✕ CANCELAR</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {user.tipo === 'motorista' && activeRide && rideStatus === 'in_ride' && (

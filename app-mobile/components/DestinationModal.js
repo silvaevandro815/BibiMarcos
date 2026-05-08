@@ -58,6 +58,10 @@ export default function DestinationModal({ visible, onClose, origin, onConfirm }
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  
+  // Novo State para a Tela de Confirmação (Review)
+  const [reviewData, setReviewData] = useState(null);
+  const [paymentMode, setPaymentMode] = useState('PIX');
 
   const search = async () => {
     if (!query.trim()) return;
@@ -78,12 +82,17 @@ export default function DestinationModal({ visible, onClose, origin, onConfirm }
       const destLat = parseFloat(item.lat);
       const destLng = parseFloat(item.lon);
       const route = await getRoute(origin.latitude, origin.longitude, destLat, destLng);
-      onConfirm({
+      
+      const distance = route ? route.distance_meters : haversineSimple(origin.latitude, origin.longitude, destLat, destLng);
+      const fareCalculated = 5.0 + (distance / 1000.0) * 2.0;
+
+      setReviewData({
         dest_lat: destLat,
         dest_lng: destLng,
         dest_name: item.display_name.split(',').slice(0, 2).join(',').trim(),
-        distance_meters: route ? route.distance_meters : haversineSimple(origin.latitude, origin.longitude, destLat, destLng),
+        distance_meters: distance,
         geometry: route ? route.geometry : null,
+        fare: fareCalculated.toFixed(2)
       });
       setQuery('');
       setResults([]);
@@ -94,62 +103,73 @@ export default function DestinationModal({ visible, onClose, origin, onConfirm }
     }
   };
 
+  const confirmRide = () => {
+    if (reviewData) {
+      onConfirm({
+        ...reviewData,
+        payment_preference: paymentMode
+      });
+      setReviewData(null);
+    }
+  };
+
+  const fecharTudo = () => {
+    setReviewData(null);
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={fecharTudo}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' }}>
         <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, maxHeight: '85%' }}>
-          {/* Header */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-            <Text style={{ fontSize: 20, fontWeight: '900', color: '#064e3b' }}>📍 Para onde vamos?</Text>
-            <TouchableOpacity onPress={onClose} style={{ backgroundColor: '#f1f5f9', width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '900', color: '#64748b', fontSize: 18 }}>✕</Text>
-            </TouchableOpacity>
-          </View>
+          
+          {reviewData ? (
+            // ==========================================
+            // TELA DE CONFIRMAÇÃO (REVIEW SCREEN)
+            // ==========================================
+            <View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                <Text style={{ fontSize: 20, fontWeight: '900', color: '#064e3b' }}>Resumo da Viagem</Text>
+                <TouchableOpacity onPress={() => setReviewData(null)} style={{ backgroundColor: '#f1f5f9', width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ fontWeight: '900', color: '#64748b', fontSize: 18 }}>←</Text>
+                </TouchableOpacity>
+              </View>
 
-          {/* Busca */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Digite a rua ou bairro em Muriaé..."
-              placeholderTextColor="#94a3b8"
-              onSubmitEditing={search}
-              returnKeyType="search"
-              style={{ flex: 1, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: '#1e293b' }}
-            />
-            <TouchableOpacity onPress={search} style={{ backgroundColor: '#064e3b', borderRadius: 14, paddingHorizontal: 18, justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 18 }}>🔍</Text>
-            </TouchableOpacity>
-          </View>
-
-          {loading && <ActivityIndicator color="#064e3b" style={{ marginVertical: 16 }} />}
-
-          <FlatList
-            data={results}
-            keyExtractor={(_, i) => i.toString()}
-            ListEmptyComponent={!loading ? <Text style={{ color: '#94a3b8', textAlign: 'center', marginTop: 16 }}>Pesquise um endereço acima</Text> : null}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => selectDest(item)}
-                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}
-              >
-                <Text style={{ fontSize: 22, marginRight: 12 }}>
-                  {item.type === 'residential' ? '🏠' : item.type === 'commercial' ? '🏢' : '📍'}
-                </Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: '700', color: '#1e293b', fontSize: 14 }} numberOfLines={1}>
-                    {item.display_name.split(',')[0]}
-                  </Text>
-                  <Text style={{ color: '#94a3b8', fontSize: 12 }} numberOfLines={1}>
-                    {item.display_name.split(',').slice(1, 3).join(',').trim()}
-                  </Text>
+              <View style={{ backgroundColor: '#f8fafc', padding: 16, borderRadius: 16, marginBottom: 16 }}>
+                <Text style={{ color: '#64748b', fontSize: 13, fontWeight: '700', marginBottom: 4 }}>Destino</Text>
+                <Text style={{ color: '#0f172a', fontSize: 18, fontWeight: '900', marginBottom: 12 }}>{reviewData.dest_name}</Text>
+                
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 12 }}>
+                  <View>
+                    <Text style={{ color: '#64748b', fontSize: 13, fontWeight: '700' }}>Distância</Text>
+                    <Text style={{ color: '#0f172a', fontSize: 16, fontWeight: '900' }}>{(reviewData.distance_meters / 1000).toFixed(1)} km</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: '#64748b', fontSize: 13, fontWeight: '700' }}>Valor Estimado</Text>
+                    <Text style={{ color: '#10b981', fontSize: 22, fontWeight: '900' }}>R$ {reviewData.fare}</Text>
+                  </View>
                 </View>
-                <Text style={{ color: '#064e3b', fontWeight: '700', fontSize: 13 }}>›</Text>
-              </TouchableOpacity>
-            )}
-          />
+              </View>
 
-          <Text style={{ color: '#cbd5e1', textAlign: 'center', marginTop: 12, fontSize: 10 }}>
+              <Text style={{ color: '#0f172a', fontSize: 16, fontWeight: '800', marginBottom: 12 }}>Forma de Pagamento</Text>
+              <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+                <TouchableOpacity 
+                  onPress={() => setPaymentMode('PIX')}
+                  style={{ flex: 1, padding: 14, borderRadius: 12, borderWidth: 2, borderColor: paymentMode === 'PIX' ? '#10b981' : '#e2e8f0', backgroundColor: paymentMode === 'PIX' ? '#ecfdf5' : '#fff', alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: paymentMode === 'PIX' ? '#064e3b' : '#64748b' }}>❖ PIX</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => setPaymentMode('Dinheiro')}
+                  style={{ flex: 1, padding: 14, borderRadius: 12, borderWidth: 2, borderColor: paymentMode === 'Dinheiro' ? '#10b981' : '#e2e8f0', backgroundColor: paymentMode === 'Dinheiro' ? '#ecfdf5' : '#fff', alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: paymentMode === 'Dinheiro' ? '#064e3b' : '#64748b' }}>💵 Dinheiro</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity onPress={confirmRide} style={{ backgroundColor: '#10b981', paddingVertical: 18, borderRadius: 16, alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 18, fontWeight: '900' }}>Confirmar e Pedir BibiMarcos</Text>
+              </TouchableOpacity>
             © OpenStreetMap contributors
           </Text>
         </View>
