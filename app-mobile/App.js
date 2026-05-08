@@ -268,6 +268,9 @@ export default function App() {
 
   const playHorn = async () => {
     try {
+      // Para qualquer som/vibração anterior para evitar sobreposição
+      await stopHorn();
+      
       // Vibração contínua: vibra por 1s, pausa por 0.5s (Android)
       Vibration.vibrate([500, 1000, 500, 1000], true);
       
@@ -277,10 +280,10 @@ export default function App() {
       );
       hornSoundRef.current = sound;
 
-      // Para automaticamente de tocar após 15 segundos se o motorista não responder
+      // Para automaticamente de tocar após 25 segundos se o motorista não responder (tempo limite de aceite)
       hornTimeoutRef.current = setTimeout(() => {
         stopHorn();
-      }, 15000);
+      }, 25000);
 
     } catch (e) {
       console.log('Erro ao tocar som contínuo:', e);
