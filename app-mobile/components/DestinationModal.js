@@ -9,8 +9,25 @@ const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving';
 const UA = 'BibiMarcos/3.0 (contato@bibimarcos.app)';
 
 export async function geocodeAddress(query) {
-  const queryStr = query.toLowerCase().includes('muria') ? query : `${query}, Muriaé - MG`;
-  const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(queryStr)}&limit=5&countrycodes=br&viewbox=-42.45,-21.05,-42.25,-21.25&bounded=1`;
+  // Converte a busca para letras minúsculas para verificação
+  const qLower = query.toLowerCase();
+  
+  // Lista dos distritos e povoados conhecidos de Muriaé
+  const distritos = ['belisário', 'belisario', 'boa família', 'boa familia', 'bom jesus', 'itamuri', 'pirapanema', 'vermelho', 'macuco', 'retiro', 'capetinga', 'são joão do glória', 'sao joao do gloria'];
+  
+  // Verifica se o usuário já digitou 'muriaé' ou se é um distrito conhecido
+  const hasMuriae = qLower.includes('muria');
+  const isDistrito = distritos.some(d => qLower.includes(d));
+
+  // Formata a string de busca perfeitamente para o Nominatim entender que é em Muriaé
+  let queryStr = query;
+  if (!hasMuriae) {
+    queryStr = isDistrito ? `${query}, Muriaé - MG` : `${query}, Muriaé - MG`;
+  }
+
+  // Viewbox expandido para 40km, cobrindo todo o município de Muriaé e zonas rurais, blindando o resto do Brasil
+  const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(queryStr)}&limit=5&countrycodes=br&viewbox=-42.70,-20.80,-42.00,-21.40&bounded=1`;
+  
   const r = await fetch(url, { headers: { 'User-Agent': UA } });
   return r.json();
 }
