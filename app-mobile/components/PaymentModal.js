@@ -26,7 +26,7 @@ export default function PaymentModal({ visible, ride, onClose, onConfirm }) {
             </Text>
           )}
 
-          {chavePix ? (
+          {chavePix && ride.payment_preference !== 'Dinheiro' ? (
             <ScrollView>
               <Text style={{ color: '#475569', fontWeight: '700', textAlign: 'center', marginBottom: 12 }}>Pagar via PIX</Text>
               <View style={{ alignItems: 'center', marginBottom: 12, backgroundColor: '#fff', padding: 8, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }}>
@@ -36,7 +36,12 @@ export default function PaymentModal({ visible, ride, onClose, onConfirm }) {
               <Text style={{ color: '#475569', fontWeight: '600', textAlign: 'center', marginBottom: 4, fontSize: 13 }}>Chave PIX:</Text>
               <Text style={{ color: '#064e3b', fontWeight: '800', textAlign: 'center', fontSize: 16, marginBottom: 20 }}>{chavePix}</Text>
             </ScrollView>
-          ) : null}
+          ) : (
+            <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+              <Text style={{ color: '#475569', fontWeight: '700', textAlign: 'center', fontSize: 16 }}>Forma de pagamento escolhida:</Text>
+              <Text style={{ color: '#10b981', fontWeight: '900', textAlign: 'center', fontSize: 24, marginTop: 8 }}>💵 Dinheiro</Text>
+            </View>
+          )}
 
           <TouchableOpacity onPress={() => { Alert.alert('Dinheiro', `Entregue R$ ${fare} em dinheiro ao motorista.`); onConfirm('cash'); }}
             style={{ backgroundColor: '#f59e0b', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginBottom: 10 }}>

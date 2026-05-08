@@ -394,11 +394,20 @@ export default function App() {
 
   const driverAction = async (action) => {
     try {
-      await fetch(`${HTTP_URL}/api/rides/${activeRide.ride_id}/${action}`, {
+      const payload = { user_id: user.user_id };
+      // O endpoint /complete exige o payment_method para estatísticas e faturamento
+      if (action === 'complete') {
+        payload.payment_method = activeRide.payment_preference || 'PIX';
+      }
+
+      const res = await fetch(`${HTTP_URL}/api/rides/${activeRide.ride_id}/${action}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.user_id })
+        body: JSON.stringify(payload)
       });
-      setRideStatus(action === 'arrived' ? 'driver_arrived' : 'in_ride');
+      
+      if (action !== 'complete') {
+        setRideStatus(action === 'arrived' ? 'driver_arrived' : 'in_ride');
+      }
       
       // Se iniciou a corrida, desenha a linha verde até o destino do passageiro
       if (action === 'start' && locationRef.current && activeRide) {
@@ -445,6 +454,7 @@ export default function App() {
           body: JSON.stringify({ user_id: user.user_id })
         });
         setActiveRide(null); setRideStatus(''); setChatMessages([]); setSearching(false);
+        webViewRef.current?.injectJavaScript(`if(routeLine) map.removeLayer(routeLine); if(driverMarker) map.removeLayer(driverMarker); driverMarker=null; true;`);
       }}
     ]);
   };
