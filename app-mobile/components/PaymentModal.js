@@ -26,31 +26,29 @@ export default function PaymentModal({ visible, ride, onClose, onConfirm }) {
             </Text>
           )}
 
-          {chavePix && ride.payment_preference !== 'Dinheiro' ? (
-            <ScrollView>
-              <Text style={{ color: '#475569', fontWeight: '700', textAlign: 'center', marginBottom: 12 }}>Pagar via PIX</Text>
-              <View style={{ alignItems: 'center', marginBottom: 12, backgroundColor: '#fff', padding: 8, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }}>
-                <QRCode value={`00020126360014br.gov.bcb.pix0114${chavePix}5204000053039865405${fare}5802BR5909BibiMarcos6008Muriae62070503***6304`}
-                  size={160} color="#064e3b" backgroundColor="white" />
-              </View>
-              <Text style={{ color: '#475569', fontWeight: '600', textAlign: 'center', marginBottom: 4, fontSize: 13 }}>Chave PIX:</Text>
-              <Text style={{ color: '#064e3b', fontWeight: '800', textAlign: 'center', fontSize: 16, marginBottom: 20 }}>{chavePix}</Text>
-            </ScrollView>
+          {ride.payment_preference === 'PIX' ? (
+            <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+              <Text style={{ color: '#475569', fontWeight: '700', textAlign: 'center', fontSize: 16 }}>Forma de pagamento escolhida:</Text>
+              <Text style={{ color: '#10b981', fontWeight: '900', textAlign: 'center', fontSize: 24, marginTop: 8, marginBottom: 12 }}>❖ PIX</Text>
+              <Text style={{ color: '#64748b', fontWeight: '600', textAlign: 'center', fontSize: 14, paddingHorizontal: 20 }}>
+                Efetue o pagamento de R$ {fare} escaneando o QR Code físico no veículo ou solicitando a chave ao motorista.
+              </Text>
+            </View>
           ) : (
             <View style={{ alignItems: 'center', paddingVertical: 20 }}>
               <Text style={{ color: '#475569', fontWeight: '700', textAlign: 'center', fontSize: 16 }}>Forma de pagamento escolhida:</Text>
-              <Text style={{ color: '#10b981', fontWeight: '900', textAlign: 'center', fontSize: 24, marginTop: 8 }}>💵 Dinheiro</Text>
+              <Text style={{ color: '#10b981', fontWeight: '900', textAlign: 'center', fontSize: 24, marginTop: 8, marginBottom: 12 }}>💵 Dinheiro</Text>
+              <Text style={{ color: '#64748b', fontWeight: '600', textAlign: 'center', fontSize: 14, paddingHorizontal: 20 }}>
+                Por favor, entregue o valor de R$ {fare} em mãos ao motorista.
+              </Text>
             </View>
           )}
 
-          <TouchableOpacity onPress={() => { Alert.alert('Dinheiro', `Entregue R$ ${fare} em dinheiro ao motorista.`); onConfirm('cash'); }}
-            style={{ backgroundColor: '#f59e0b', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginBottom: 10 }}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>💵 PAGAR EM DINHEIRO</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => onConfirm('pix')}
-            style={{ backgroundColor: '#064e3b', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginBottom: 10 }}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>📱 PAGAR VIA PIX</Text>
+          <TouchableOpacity onPress={() => onConfirm(ride.payment_preference === 'PIX' ? 'pix' : 'cash')}
+            style={{ backgroundColor: ride.payment_preference === 'PIX' ? '#064e3b' : '#f59e0b', paddingVertical: 16, borderRadius: 14, alignItems: 'center', marginTop: 10 }}>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>
+              {ride.payment_preference === 'PIX' ? '❖ JÁ PAGUEI VIA PIX' : '💵 JÁ PAGUEI EM DINHEIRO'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={onClose} style={{ paddingVertical: 12, alignItems: 'center' }}>
