@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image, StyleSheet } from 'react-native';
+import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image, StyleSheet, AppState } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
@@ -219,9 +219,28 @@ export default function App() {
   useEffect(() => {
     if (user) {
       connectWS();
-      // NOTA: playHorn() removido daqui — deve tocar APENAS em 'ride_request', não no login
     }
+
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && user) {
+        // Reconecta instantaneamente ao abrir o app (se a tela estava apagada)
+        if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+          connectWS();
+        }
+      }
+    });
+
+    const notifSub = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      if (data && data.type === 'ride_request' && data.ride) {
+        // Força a chamada do handleMsg injetando os dados da notificação (mesmo sem WS)
+        handleMsg({ type: 'ride_request', ride: data.ride });
+      }
+    });
+
     return () => {
+      sub.remove();
+      notifSub.remove();
       clearTimeout(reconnectTimer.current);
       clearInterval(pingInterval.current);
       clearTimeout(pongTimeout.current);
@@ -473,14 +492,16 @@ export default function App() {
         Alert.alert('Aviso', e.detail || 'Nenhum motorista disponível.'); setSearching(false);
       } else {
         const d = await r.json();
-        setActiveRide({
-          ride_id: d.ride_id,
-          fare: d.fare,
-          dest_name: destInfo.dest_name,
-          origin_name: 'Minha Localização',
-          payment_preference: destInfo.payment_preference || 'PIX', // Preservado para o PaymentModal
-        });
-        setRideStatus('searching');
+        if (!rideStatusRef.current || rideStatusRef.current === '' || rideStatusRef.current === 'searching') {
+          setActiveRide({
+            ride_id: d.ride_id,
+            fare: d.fare,
+            dest_name: destInfo.dest_name,
+            origin_name: 'Minha Localização',
+            payment_preference: destInfo.payment_preference || 'PIX', // Preservado para o PaymentModal
+          });
+          setRideStatus('searching');
+        }
         if (destInfo.geometry) {
           const coords = destInfo.geometry.map(([lng, lat]) => [lat, lng]);
           webViewRef.current?.injectJavaScript(`drawRoute(${JSON.stringify(coords)});true;`);

@@ -753,7 +753,7 @@ async def request_ride(data: RideRequest):
             d.get("push_token", ""),
             "🚗 Nova corrida disponível!",
             f"{data.payment_preference} • R$ {fare:.2f} • {dist/1000:.1f}km até você",
-            {"type": "ride_request", "ride_id": ride_id}
+            {"type": "ride_request", "ride_id": ride_id, "ride": {**ride, "driver_distance_meters": round(dist)}}
         )
 
     return {"ride_id": ride_id, "fare": fare, "status": "searching"}
