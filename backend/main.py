@@ -260,10 +260,15 @@ def haversine(lat1, lon1, lat2, lon2) -> float:
 
 def calculate_fare(distance_meters: float) -> float:
     km = distance_meters / 1000
-    base, rate, minimum = 5.0, 2.20, 8.0
+    base, rate, minimum = 4.0, 1.80, 7.0
     now = datetime.now()
     h, d = now.hour, now.weekday()
-    m = 1.5 if 0 <= h < 6 else (1.3 if h >= 20 and d >= 5 else (1.2 if h >= 20 else (1.15 if d >= 5 else 1.0)))
+    if 0 <= h < 6:
+        m = 1.3
+    elif h >= 20:
+        m = 1.2 if d >= 4 else 1.1
+    else:
+        m = 1.0
     return round(max((base + km * rate) * m, minimum), 2)
 
 

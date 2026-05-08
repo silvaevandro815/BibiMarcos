@@ -167,17 +167,18 @@ export default function DestinationModal({ visible, onClose, origin, onConfirm }
       const distance = route ? route.distance_meters : haversineSimple(origin.latitude, origin.longitude, destLat, destLng);
       const calculateFare = (dist) => {
         const km = dist / 1000.0;
-        const base = 5.0, rate = 2.20, minimum = 8.0;
+        const base = 4.0, rate = 1.80, minimum = 7.0;
         const now = new Date();
         const h = now.getHours();
         const d = now.getDay();
-        const isWeekend = (d === 0 || d === 6); // 0 = Dom, 6 = Sáb
+        const isWeekendNight = (d === 0 || d === 5 || d === 6); // 0 = Dom, 5 = Sex, 6 = Sáb
         
         let m = 1.0;
-        if (h >= 0 && h < 6) m = 1.5;
-        else if (h >= 20 && isWeekend) m = 1.3;
-        else if (h >= 20) m = 1.2;
-        else if (isWeekend) m = 1.15;
+        if (h >= 0 && h < 6) {
+          m = 1.3;
+        } else if (h >= 20) {
+          m = isWeekendNight ? 1.2 : 1.1;
+        }
         
         return Math.max((base + km * rate) * m, minimum);
       };
