@@ -8,28 +8,109 @@ const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
 const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving';
 const UA = 'BibiMarcos/3.0 (contato@bibimarcos.app)';
 
+const MURIAE_CATALOG = [
+  { name: 'Bairro União, Muriaé - MG', lat: '-21.1244', lon: '-42.3853' },
+  { name: 'Centro, Muriaé - MG', lat: '-21.1308', lon: '-42.3658' },
+  { name: 'Barra, Muriaé - MG', lat: '-21.1399', lon: '-42.3663' },
+  { name: 'Dornelas, Muriaé - MG', lat: '-21.1154', lon: '-42.3705' },
+  { name: 'Safira, Muriaé - MG', lat: '-21.1265', lon: '-42.3551' },
+  { name: 'Porto, Muriaé - MG', lat: '-21.1390', lon: '-42.3560' },
+  { name: 'Aeroporto, Muriaé - MG', lat: '-21.1500', lon: '-42.3500' },
+  { name: 'São Francisco, Muriaé - MG', lat: '-21.1330', lon: '-42.3600' },
+  { name: 'Santa Terezinha, Muriaé - MG', lat: '-21.1450', lon: '-42.3600' },
+  { name: 'Planalto, Muriaé - MG', lat: '-21.1200', lon: '-42.3650' },
+  { name: 'Joanópolis, Muriaé - MG', lat: '-21.1400', lon: '-42.3800' },
+  { name: 'São Joaquim, Muriaé - MG', lat: '-21.1300', lon: '-42.3850' },
+  { name: 'Gaspar, Muriaé - MG', lat: '-21.1250', lon: '-42.3450' },
+  { name: 'Augusto de Abreu, Muriaé - MG', lat: '-21.1100', lon: '-42.3750' },
+  { name: 'Belisário (Distrito), Muriaé - MG', lat: '-20.8931', lon: '-42.2743' },
+  { name: 'Boa Família (Distrito), Muriaé - MG', lat: '-21.1895', lon: '-42.2856' },
+  { name: 'Bom Jesus da Cachoeira (Distrito), Muriaé - MG', lat: '-21.2405', lon: '-42.3021' },
+  { name: 'Itamuri (Distrito), Muriaé - MG', lat: '-21.0335', lon: '-42.3650' },
+  { name: 'Macuco (Distrito), Muriaé - MG', lat: '-21.0900', lon: '-42.2500' },
+  { name: 'Pirapanema (Distrito), Muriaé - MG', lat: '-21.0505', lon: '-42.4350' },
+  { name: 'Vermelho (Distrito), Muriaé - MG', lat: '-21.1180', lon: '-42.3050' },
+  { name: 'Retiro, Muriaé - MG', lat: '-21.0800', lon: '-42.3200' },
+  { name: 'Capetinga, Muriaé - MG', lat: '-21.0600', lon: '-42.3000' },
+  { name: 'São João do Glória, Muriaé - MG', lat: '-21.1000', lon: '-42.4000' },
+  { name: 'Cardoso de Melo, Muriaé - MG', lat: '-21.1450', lon: '-42.3450' },
+  { name: 'Cerâmica, Muriaé - MG', lat: '-21.1400', lon: '-42.3700' },
+  { name: 'Inconfidência, Muriaé - MG', lat: '-21.1250', lon: '-42.3600' },
+  { name: 'João XXIII, Muriaé - MG', lat: '-21.1200', lon: '-42.3550' },
+  { name: 'Padre Tiago / Marambaia, Muriaé - MG', lat: '-21.1150', lon: '-42.3500' },
+  { name: 'Santana, Muriaé - MG', lat: '-21.1350', lon: '-42.3450' },
+  { name: 'Napoleão, Muriaé - MG', lat: '-21.1100', lon: '-42.3600' },
+  { name: 'José Cirilo, Muriaé - MG', lat: '-21.1180', lon: '-42.3650' },
+  { name: 'Encoberta, Muriaé - MG', lat: '-21.1450', lon: '-42.3650' },
+  { name: 'Primavera, Muriaé - MG', lat: '-21.1300', lon: '-42.3500' },
+  { name: 'Santo Antônio, Muriaé - MG', lat: '-21.1350', lon: '-42.3600' },
+  { name: 'Bico Doce, Muriaé - MG', lat: '-21.1380', lon: '-42.3620' },
+  { name: 'Alterosa, Muriaé - MG', lat: '-21.1250', lon: '-42.3800' },
+  { name: 'Alto do Castelo, Muriaé - MG', lat: '-21.1280', lon: '-42.3680' },
+  { name: 'Boa Esperança, Muriaé - MG', lat: '-21.1400', lon: '-42.3500' },
+  { name: 'Boa Vista, Muriaé - MG', lat: '-21.1350', lon: '-42.3550' },
+  { name: 'Bom Pastor, Muriaé - MG', lat: '-21.1450', lon: '-42.3400' },
+  { name: 'Chácara da Gávea, Muriaé - MG', lat: '-21.1200', lon: '-42.3400' },
+  { name: 'Chácara Doutor Brum, Muriaé - MG', lat: '-21.1150', lon: '-42.3450' },
+  { name: 'Chácara Leblom, Muriaé - MG', lat: '-21.1100', lon: '-42.3500' },
+  { name: 'Chalé, Muriaé - MG', lat: '-21.1050', lon: '-42.3550' },
+  { name: 'Colety, Muriaé - MG', lat: '-21.1300', lon: '-42.3700' },
+  { name: 'Coronel Izalino, Muriaé - MG', lat: '-21.1350', lon: '-42.3750' },
+  { name: 'Distrito Industrial, Muriaé - MG', lat: '-21.1550', lon: '-42.3300' }
+];
+
+const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
 export async function geocodeAddress(query) {
-  // Converte a busca para letras minúsculas para verificação
-  const qLower = query.toLowerCase();
+  const normQuery = normalize(query);
   
   // Lista dos distritos e povoados conhecidos de Muriaé
   const distritos = ['belisário', 'belisario', 'boa família', 'boa familia', 'bom jesus', 'itamuri', 'pirapanema', 'vermelho', 'macuco', 'retiro', 'capetinga', 'são joão do glória', 'sao joao do gloria'];
   
-  // Verifica se o usuário já digitou 'muriaé' ou se é um distrito conhecido
+  // 1. Busca no Catálogo Blindado
+  let localResults = [];
+  if (normQuery.length > 2) {
+    const localMatches = MURIAE_CATALOG.filter(c => 
+      normalize(c.name).includes(normQuery) || 
+      normQuery.includes(normalize(c.name).split(',')[0].trim())
+    );
+    localResults = localMatches.map(m => ({
+      display_name: m.name,
+      lat: m.lat,
+      lon: m.lon,
+      isLocal: true // flag opcional para debug
+    }));
+  }
+
+  // 2. Continua para a API do Nominatim
+  const qLower = query.toLowerCase();
   const hasMuriae = qLower.includes('muria');
   const isDistrito = distritos.some(d => qLower.includes(d));
 
-  // Formata a string de busca perfeitamente para o Nominatim entender que é em Muriaé
   let queryStr = query;
   if (!hasMuriae) {
     queryStr = isDistrito ? `${query}, Muriaé - MG` : `${query}, Muriaé - MG`;
   }
 
-  // Viewbox expandido para 40km, cobrindo todo o município de Muriaé e zonas rurais, blindando o resto do Brasil
   const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(queryStr)}&limit=5&countrycodes=br&viewbox=-42.70,-20.80,-42.00,-21.40&bounded=1`;
   
-  const r = await fetch(url, { headers: { 'User-Agent': UA } });
-  return r.json();
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': UA } });
+    const apiData = await r.json();
+    
+    // Mescla os resultados: Catálogo Blindado primeiro, depois a API externa
+    // Filtra duplicatas grosseiras (mesmo display_name ou mto perto)
+    const combined = [...localResults];
+    for (const item of apiData) {
+      if (!combined.find(c => c.display_name === item.display_name)) {
+        combined.push(item);
+      }
+    }
+    return combined;
+  } catch (e) {
+    console.log("Falha no Nominatim, retornando apenas catálogo local", e);
+    return localResults;
+  }
 }
 
 export async function reverseGeocode(lat, lng) {
