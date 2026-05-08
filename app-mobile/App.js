@@ -16,6 +16,44 @@ const WS_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w
 const HTTP_URL = WS_URL.replace('ws://', 'http://').replace('wss://', 'https://').replace('/ws', '');
 const BG_TASK = 'BACKGROUND_LOCATION_TASK';
 const USER_FILE = FileSystem.documentDirectory + 'session.json';
+const USER_FILE_BACKUP = FileSystem.documentDirectory + 'session_backup.json';
+
+async function loadResilientSession() {
+  try {
+    let storedPrimary = null;
+    let storedBackup = null;
+    
+    try { storedPrimary = await FileSystem.readAsStringAsync(USER_FILE); } catch {}
+    try { storedBackup = await FileSystem.readAsStringAsync(USER_FILE_BACKUP); } catch {}
+    
+    let u = null;
+    if (storedPrimary) {
+      try { u = JSON.parse(storedPrimary); } catch {}
+    }
+    
+    if (!u && storedBackup) {
+      try { u = JSON.parse(storedBackup); } catch {}
+      if (u) {
+        // Recupera o primário a partir do backup
+        await FileSystem.writeAsStringAsync(USER_FILE, JSON.stringify(u)).catch(() => {});
+      }
+    } else if (u && !storedBackup) {
+      // Cria o backup a partir do primário
+      await FileSystem.writeAsStringAsync(USER_FILE_BACKUP, JSON.stringify(u)).catch(() => {});
+    }
+    return u;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function saveResilientSession(u) {
+  try {
+    const data = JSON.stringify(u);
+    await FileSystem.writeAsStringAsync(USER_FILE, data);
+    await FileSystem.writeAsStringAsync(USER_FILE_BACKUP, data);
+  } catch (e) {}
+}
 
 TaskManager.defineTask(BG_TASK, async ({ data, error }) => {
   if (error || !data) return;
@@ -23,15 +61,12 @@ TaskManager.defineTask(BG_TASK, async ({ data, error }) => {
   if (locations && locations[0]) {
     try {
       const loc = locations[0];
-      const stored = await FileSystem.readAsStringAsync(USER_FILE);
-      if (stored) {
-        const u = JSON.parse(stored);
-        if (u && u.tipo === 'motorista') {
-          await fetch(`${HTTP_URL}/api/drivers/location-update`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: u.user_id, lat: loc.coords.latitude, lng: loc.coords.longitude })
-          });
-        }
+      const u = await loadResilientSession();
+      if (u && u.tipo === 'motorista') {
+        await fetch(`${HTTP_URL}/api/drivers/location-update`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: u.user_id, lat: loc.coords.latitude, lng: loc.coords.longitude })
+        });
       }
     } catch (e) {}
   }
@@ -78,9 +113,8 @@ export default function App() {
       }
 
       try {
-        const stored = await FileSystem.readAsStringAsync(USER_FILE);
-        if (stored) {
-          const u = JSON.parse(stored);
+        const u = await loadResilientSession();
+        if (u) {
           setUser(u);
           
           // Blindagem Vale do Silício: Recuperar corrida se o app fechou no meio da viagem
@@ -516,7 +550,7 @@ export default function App() {
   if (!user) {
     return <LoginScreen onLogin={async (u) => { 
       setUser(u); 
-      try { await FileSystem.writeAsStringAsync(USER_FILE, JSON.stringify(u)); } catch {} 
+      await saveResilientSession(u);
     }} />;
   }
 
