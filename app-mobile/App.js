@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image, StyleSheet, AppState } from 'react-native';
+import { View, Text, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, StatusBar, Image, StyleSheet, AppState, Vibration } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
@@ -251,19 +251,39 @@ export default function App() {
     };
   }, [user]);
 
+  const hornSoundRef = useRef(null);
+  const hornTimeoutRef = useRef(null);
+
+  const stopHorn = async () => {
+    Vibration.cancel();
+    clearTimeout(hornTimeoutRef.current);
+    if (hornSoundRef.current) {
+      try {
+        await hornSoundRef.current.stopAsync();
+        await hornSoundRef.current.unloadAsync();
+      } catch (e) {}
+      hornSoundRef.current = null;
+    }
+  };
+
   const playHorn = async () => {
     try {
+      // Vibração contínua: vibra por 1s, pausa por 0.5s (Android)
+      Vibration.vibrate([500, 1000, 500, 1000], true);
+      
       const { sound } = await Audio.Sound.createAsync(
         require('./assets/horn.ogg'),
-        { shouldPlay: true, volume: 1.0 }
+        { shouldPlay: true, isLooping: true, volume: 1.0 }
       );
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) {
-          sound.unloadAsync();
-        }
-      });
+      hornSoundRef.current = sound;
+
+      // Para automaticamente de tocar após 15 segundos se o motorista não responder
+      hornTimeoutRef.current = setTimeout(() => {
+        stopHorn();
+      }, 15000);
+
     } catch (e) {
-      console.log('Erro ao tocar som:', e);
+      console.log('Erro ao tocar som contínuo:', e);
     }
   };
 
@@ -322,7 +342,7 @@ export default function App() {
           Alert.alert(
             '🚗 Nova Solicitação de Corrida!',
             `Passageiro: ${r.passenger_name} (⭐${r.passenger_avaliacao?.toFixed(1) || '5.0'})\nDe: ${r.origin_name}\nPara: ${r.dest_name}\nPagamento: ${r.payment_preference || 'PIX'}\nValor: R$ ${r.fare?.toFixed(2)}\nDistância: ${(r.driver_distance_meters / 1000).toFixed(1)}km`,
-            [{ text: 'Recusar', style: 'cancel' }, { text: 'ACEITAR ✓', onPress: () => acceptRide(r.ride_id) }]
+            [{ text: 'Recusar', style: 'cancel', onPress: stopHorn }, { text: 'ACEITAR ✓', onPress: () => { stopHorn(); acceptRide(r.ride_id); } }]
           );
         }
         break;
