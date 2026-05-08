@@ -39,8 +39,8 @@ export async function reverseGeocode(lat, lng) {
   return d.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
-export async function getRoute(originLat, originLng, destLat, destLng) {
-  const url = `${OSRM_URL}/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson`;
+async function getRoute(lat1, lng1, lat2, lng2) {
+  const url = `${OSRM_URL}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
   const r = await fetch(url);
   const d = await r.json();
   if (d.routes && d.routes.length > 0) {
@@ -170,6 +170,64 @@ export default function DestinationModal({ visible, onClose, origin, onConfirm }
               <TouchableOpacity onPress={confirmRide} style={{ backgroundColor: '#10b981', paddingVertical: 18, borderRadius: 16, alignItems: 'center' }}>
                 <Text style={{ color: '#fff', fontSize: 18, fontWeight: '900' }}>Confirmar e Pedir BibiMarcos</Text>
               </TouchableOpacity>
+            </View>
+          ) : (
+            // ==========================================
+            // TELA DE BUSCA (SEARCH SCREEN)
+            // ==========================================
+            <View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                <Text style={{ fontSize: 20, fontWeight: '900', color: '#064e3b' }}>📍 Para onde vamos?</Text>
+                <TouchableOpacity onPress={onClose} style={{ backgroundColor: '#f1f5f9', width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ fontWeight: '900', color: '#64748b', fontSize: 18 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Digite a rua ou bairro em Muriaé..."
+                  placeholderTextColor="#94a3b8"
+                  onSubmitEditing={search}
+                  returnKeyType="search"
+                  style={{ flex: 1, backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#e2e8f0', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: '#1e293b' }}
+                />
+                <TouchableOpacity onPress={search} style={{ backgroundColor: '#064e3b', borderRadius: 14, paddingHorizontal: 18, justifyContent: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '900', fontSize: 18 }}>🔍</Text>
+                </TouchableOpacity>
+              </View>
+
+              {loading && <ActivityIndicator color="#064e3b" style={{ marginVertical: 16 }} />}
+
+              <FlatList
+                data={results}
+                keyExtractor={(_, i) => i.toString()}
+                ListEmptyComponent={!loading ? <Text style={{ color: '#94a3b8', textAlign: 'center', marginTop: 16 }}>Pesquise um endereço acima</Text> : null}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    onPress={() => selectDest(item)}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}
+                  >
+                    <Text style={{ fontSize: 22, marginRight: 12 }}>
+                      {item.type === 'residential' ? '🏠' : item.type === 'commercial' ? '🏢' : '📍'}
+                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '700', color: '#1e293b', fontSize: 14 }} numberOfLines={1}>
+                        {item.display_name.split(',')[0]}
+                      </Text>
+                      <Text style={{ color: '#64748b', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                        {item.display_name.split(',').slice(1, 3).join(',')}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+                style={{ maxHeight: 300 }}
+              />
+            </View>
+          )}
+
+          <Text style={{ color: '#cbd5e1', textAlign: 'center', marginTop: 12, fontSize: 10 }}>
             © OpenStreetMap contributors
           </Text>
         </View>
