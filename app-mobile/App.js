@@ -5,6 +5,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import * as SecureStore from 'expo-secure-store';
 
 import LoginScreen from './screens/LoginScreen';
 import ChatModal from './components/ChatModal';
@@ -15,44 +16,68 @@ import RatingModal from './components/RatingModal';
 const WS_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws';
 const HTTP_URL = WS_URL.replace('ws://', 'http://').replace('wss://', 'https://').replace('/ws', '');
 const BG_TASK = 'BACKGROUND_LOCATION_TASK';
+// ============================================================
+// PERSISTÊNCIA DE SESSÃO — TRIPLA REDUNDÂNCIA
+// Camada 1: expo-secure-store (Android Keystore / iOS Keychain)
+//           -> Cofre de hardware criptografado. Sobrevive a
+//              limpeza de cache, RAM killde processo, reinicializações.
+//              É como Facebook, Instagram e TikTok fazem.
+// Camada 2: FileSystem (session.json) — fallback local
+// Camada 3: FileSystem (session_backup.json) — fallback secundário
+// O sistema tenta cada camada em ordem e auto-recupera as demais.
+// ============================================================
+const SECURE_STORE_KEY = 'bibimarcos_session_v2';
 const USER_FILE = FileSystem.documentDirectory + 'session.json';
 const USER_FILE_BACKUP = FileSystem.documentDirectory + 'session_backup.json';
 
 async function loadResilientSession() {
+  // Tenta SecureStore primeiro (Android Keystore / iOS Keychain)
+  let u = null;
   try {
-    let storedPrimary = null;
-    let storedBackup = null;
-    
-    try { storedPrimary = await FileSystem.readAsStringAsync(USER_FILE); } catch {}
-    try { storedBackup = await FileSystem.readAsStringAsync(USER_FILE_BACKUP); } catch {}
-    
-    let u = null;
-    if (storedPrimary) {
-      try { u = JSON.parse(storedPrimary); } catch {}
-    }
-    
-    if (!u && storedBackup) {
-      try { u = JSON.parse(storedBackup); } catch {}
-      if (u) {
-        // Recupera o primário a partir do backup
-        await FileSystem.writeAsStringAsync(USER_FILE, JSON.stringify(u)).catch(() => {});
-      }
-    } else if (u && !storedBackup) {
-      // Cria o backup a partir do primário
-      await FileSystem.writeAsStringAsync(USER_FILE_BACKUP, JSON.stringify(u)).catch(() => {});
-    }
-    return u;
-  } catch (e) {
-    return null;
+    const raw = await SecureStore.getItemAsync(SECURE_STORE_KEY);
+    if (raw) u = JSON.parse(raw);
+  } catch {}
+
+  // Fallback para FileSystem primário
+  if (!u) {
+    try {
+      const raw = await FileSystem.readAsStringAsync(USER_FILE);
+      if (raw) u = JSON.parse(raw);
+    } catch {}
   }
+
+  // Fallback para FileSystem backup
+  if (!u) {
+    try {
+      const raw = await FileSystem.readAsStringAsync(USER_FILE_BACKUP);
+      if (raw) u = JSON.parse(raw);
+    } catch {}
+  }
+
+  // Se encontrou sessão via fallback, sincroniza de volta no SecureStore
+  if (u) {
+    saveResilientSession(u).catch(() => {});
+  }
+
+  return u;
 }
 
 async function saveResilientSession(u) {
-  try {
-    const data = JSON.stringify(u);
-    await FileSystem.writeAsStringAsync(USER_FILE, data);
-    await FileSystem.writeAsStringAsync(USER_FILE_BACKUP, data);
-  } catch (e) {}
+  const data = JSON.stringify(u);
+  // Grava em paralelo nas 3 camadas para máxima resiliência
+  await Promise.allSettled([
+    SecureStore.setItemAsync(SECURE_STORE_KEY, data),
+    FileSystem.writeAsStringAsync(USER_FILE, data),
+    FileSystem.writeAsStringAsync(USER_FILE_BACKUP, data),
+  ]);
+}
+
+async function clearResilientSession() {
+  await Promise.allSettled([
+    SecureStore.deleteItemAsync(SECURE_STORE_KEY),
+    FileSystem.deleteAsync(USER_FILE, { idempotent: true }),
+    FileSystem.deleteAsync(USER_FILE_BACKUP, { idempotent: true }),
+  ]);
 }
 
 TaskManager.defineTask(BG_TASK, async ({ data, error }) => {
@@ -753,9 +778,9 @@ setInterval(function() {
 
       {/* Floating Header Glassmorphism Overlay */}
       <View style={styles.floatingHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <Image source={user.foto_url ? {uri: user.foto_url} : require('./assets/icon.png')} style={styles.headerProfileImage} />
-          <View>
+          <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Image source={require('./assets/icon.png')} style={{width: 18, height: 18, borderRadius: 4, marginRight: 6}} />
               <Text style={styles.headerTitle}>BibiMarcos</Text>
@@ -764,12 +789,31 @@ setInterval(function() {
             <Text style={styles.headerSubtitle}>{user.nome.toUpperCase()} · ⭐ {(user.avaliacao||5.0).toFixed(1)}</Text>
           </View>
         </View>
-        {user.tipo === 'motorista' && (
-          <View style={styles.onlineSwitchContainer}>
-            <Text style={styles.onlineText}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
-            <Switch value={isOnline} onValueChange={toggleOnline} trackColor={{ false: '#1e293b', true: '#10b981' }} thumbColor={isOnline ? '#fff' : '#94a3b8'} style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }} />
-          </View>
-        )}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {user.tipo === 'motorista' && (
+            <View style={styles.onlineSwitchContainer}>
+              <Text style={styles.onlineText}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
+              <Switch value={isOnline} onValueChange={toggleOnline} trackColor={{ false: '#1e293b', true: '#10b981' }} thumbColor={isOnline ? '#fff' : '#94a3b8'} style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }} />
+            </View>
+          )}
+          <TouchableOpacity
+            onPress={() => Alert.alert('Sair da conta?', 'Tem certeza que deseja sair?', [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Sair', style: 'destructive', onPress: async () => {
+                await clearResilientSession();
+                setUser(null);
+                setActiveRide(null);
+                setRideStatus('');
+                setChatMessages([]);
+                setSearching(false);
+                setIsOnline(false);
+              }}
+            ])}
+            style={{ backgroundColor: 'rgba(239,68,68,0.18)', borderRadius: 10, padding: 8, borderWidth: 1, borderColor: 'rgba(239,68,68,0.35)' }}
+          >
+            <Text style={{ color: '#fca5a5', fontSize: 11, fontWeight: '800' }}>SAIR</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Map WebView Section */}
