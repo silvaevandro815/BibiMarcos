@@ -154,7 +154,7 @@ export default function App() {
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 250, 250, 250, 250, 250],
             lightColor: '#10b981',
-            sound: 'default',
+            sound: 'horn.ogg',
             lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
             bypassDnd: true,
           });

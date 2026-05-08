@@ -30,7 +30,8 @@
           "color": "#064e3b",
           "androidMode": "default",
           "androidCollapsedTitle": "BibiMarcos",
-          "useNextNotificationsApi": true
+          "useNextNotificationsApi": true,
+          "sounds": ["./assets/horn.ogg"]
         }
       ],
       "expo-image-picker",

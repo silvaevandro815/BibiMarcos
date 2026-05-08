@@ -285,7 +285,7 @@ async def send_push(push_token: str, title: str, body: str, data: dict = {}):
         "title": title,
         "body": body,
         "data": data,
-        "sound": "default",
+        "sound": "horn.ogg",
         "priority": "high",
         "channelId": "corridas",
     }).encode()
