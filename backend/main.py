@@ -688,6 +688,16 @@ async def go_online(data: dict):
         if not row:
             raise HTTPException(status_code=404, detail="Motorista não encontrado")
         u = dict(row)
+
+        # Se o app enviou um token novo, salva no banco imediatamente
+        fresh_token = data.get("push_token", "")
+        if fresh_token and fresh_token.startswith("ExponentPushToken"):
+            await conn.execute("UPDATE users SET push_token=$1 WHERE user_id=$2", fresh_token, user_id)
+            u["push_token"] = fresh_token
+            print(f"[Push] Token atualizado para motorista {u['nome']}: {fresh_token[:30]}...")
+        elif not u.get("push_token"):
+            print(f"[Push] AVISO: Motorista {u['nome']} ({user_id}) foi online SEM push_token!")
+
         online_drivers[user_id] = {
             "user_id": user_id,
             "nome": u["nome"],
@@ -700,7 +710,7 @@ async def go_online(data: dict):
             "lng": data.get("lng", 0),
             "status": "available",
         }
-        return {"status": "online"}
+        return {"status": "online", "push_token_saved": bool(u.get("push_token"))}
     finally:
         await release_db(conn)
 

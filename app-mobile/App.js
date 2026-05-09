@@ -122,6 +122,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [rideStatus, setRideStatus] = useState('');
   const [searching, setSearching] = useState(false);
+  const [localPushToken, setLocalPushToken] = useState(''); // Token sempre atualizado do dispositivo
 
   const ws = useRef(null);
   const webViewRef = useRef(null);
@@ -161,6 +162,20 @@ export default function App() {
         } catch (e) {
           console.log('Erro ao criar canal de notificação:', e);
         }
+      }
+
+      // Obtém o token push atualizado do dispositivo logo na inicialização
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status === 'granted') {
+          const projectId = '98b23ec1-605b-4112-b30c-d14046bb9e50';
+          const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+          const token = tokenData.data;
+          setLocalPushToken(token);
+          console.log('[Push] Token obtido na inicialização:', token.substring(0, 30) + '...');
+        }
+      } catch (e) {
+        console.log('[Push] Erro ao obter token na inicialização:', e);
       }
 
       try {
@@ -437,9 +452,17 @@ export default function App() {
     const val = !isOnline;
     setIsOnline(val);
     if (val) {
+      // Usa o token mais recente do dispositivo (localPushToken) em vez do token da sessão salva
+      const currentToken = localPushToken || user.push_token || '';
+      console.log('[Push] Enviando token ao ir online:', currentToken ? currentToken.substring(0,30)+'...' : 'VAZIO');
       await fetch(`${HTTP_URL}/api/drivers/online`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.user_id, lat: location?.latitude || 0, lng: location?.longitude || 0 })
+        body: JSON.stringify({
+          user_id: user.user_id,
+          lat: location?.latitude || 0,
+          lng: location?.longitude || 0,
+          push_token: currentToken,
+        })
       });
       startTracking();
     } else {
