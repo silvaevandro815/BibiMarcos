@@ -255,9 +255,19 @@ export default function App() {
       }
     });
 
+    // Escuta a notificação CHEGANDO (mesmo com tela apagada, já que o app é mantido vivo pelo GPS)
+    const notifReceivedSub = Notifications.addNotificationReceivedListener(notification => {
+      const data = notification.request.content.data;
+      if (data && data.type === 'ride_request' && data.ride) {
+        // Dispara o alerta sonoro e abre a tela imediatamente sem precisar do usuário clicar na notificação
+        handleMsg({ type: 'ride_request', ride: data.ride });
+      }
+    });
+
     return () => {
       sub.remove();
       notifSub.remove();
+      notifReceivedSub.remove();
       clearTimeout(reconnectTimer.current);
       clearInterval(pingInterval.current);
       clearTimeout(pongTimeout.current);
