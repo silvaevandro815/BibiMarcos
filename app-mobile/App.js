@@ -559,36 +559,55 @@ export default function App() {
   const driverAction = async (action) => {
     try {
       const payload = { user_id: user.user_id };
-      // O endpoint /complete exige o payment_method para estatísticas e faturamento
       if (action === 'complete') {
-        payload.payment_method = activeRide.payment_preference || 'PIX';
+        payload.payment_method = activeRide?.payment_preference || 'PIX';
       }
 
       const res = await fetch(`${HTTP_URL}/api/rides/${activeRide.ride_id}/${action}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      
-      if (action !== 'complete') {
-        setRideStatus(action === 'arrived' ? 'driver_arrived' : 'in_ride');
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        Alert.alert('Erro', err.detail || 'Não foi possível executar a ação. Tente novamente.');
+        return;
       }
-      
-      // Se iniciou a corrida, desenha a linha verde até o destino do passageiro
-      if (action === 'start' && locationRef.current && activeRide) {
-        const dLat = locationRef.current.latitude;
-        const dLng = locationRef.current.longitude;
-        const destLat = activeRide.dest_lat;
-        const destLng = activeRide.dest_lng;
-        fetch(`https://router.project-osrm.org/route/v1/driving/${dLng},${dLat};${destLng},${destLat}?overview=full&geometries=geojson`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.routes && data.routes.length > 0) {
-              const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-              webViewRef.current?.injectJavaScript(`drawRoute(${JSON.stringify(coords)});true;`);
-            }
-          }).catch(e => console.log(e));
+
+      if (action === 'complete') {
+        // Finalizar: limpa a corrida, para tracking e abre avaliação
+        stopHorn();
+        setRideToRate(activeRide);
+        setActiveRide(null);
+        setRideStatus('');
+        setChatMessages([]);
+        setSearching(false);
+        webViewRef.current?.injectJavaScript(`if(routeLine) map.removeLayer(routeLine); if(driverMarker) map.removeLayer(driverMarker); driverMarker=null; true;`);
+        if (isOnline) startTracking();
+        setRatingVisible(true);
+      } else if (action === 'arrived') {
+        setRideStatus('driver_arrived');
+      } else if (action === 'start') {
+        setRideStatus('in_ride');
+        // Desenha a linha verde até o destino do passageiro
+        if (locationRef.current && activeRide) {
+          const dLat = locationRef.current.latitude;
+          const dLng = locationRef.current.longitude;
+          const destLat = activeRide.dest_lat;
+          const destLng = activeRide.dest_lng;
+          fetch(`https://router.project-osrm.org/route/v1/driving/${dLng},${dLat};${destLng},${destLat}?overview=full&geometries=geojson`)
+            .then(r => r.json())
+            .then(data => {
+              if (data.routes && data.routes.length > 0) {
+                const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                webViewRef.current?.injectJavaScript(`drawRoute(${JSON.stringify(coords)});true;`);
+              }
+            }).catch(e => console.log(e));
+        }
       }
-    } catch {}
+    } catch (e) {
+      Alert.alert('Erro de conexão', 'Verifique sua internet e tente novamente.');
+    }
   };
 
   const completeRide = async (method) => {
