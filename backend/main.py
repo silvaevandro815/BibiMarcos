@@ -272,7 +272,8 @@ def haversine(lat1, lon1, lat2, lon2) -> float:
 def calculate_fare(distance_meters: float) -> float:
     km = distance_meters / 1000
     base, rate, minimum = 4.0, 1.80, 7.0
-    now = datetime.now()
+    # Ajuste fixo para fuso de Brasília (UTC-3) para espelhar exatamente o celular do usuário
+    now = datetime.utcnow() - timedelta(hours=3)
     h, d = now.hour, now.weekday()
     if 0 <= h < 6:
         m = 1.3
