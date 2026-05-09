@@ -22,6 +22,7 @@ import ChatModal from './components/ChatModal';
 import PaymentModal from './components/PaymentModal';
 import DestinationModal from './components/DestinationModal';
 import RatingModal from './components/RatingModal';
+import HistoryModal from './components/HistoryModal';
 
 const WS_URL = process.env.EXPO_PUBLIC_API_URL || 'ws://p12v8ns66xyrez0h1ywnhj8w.72.61.43.154.sslip.io/ws';
 const HTTP_URL = WS_URL.replace('ws://', 'http://').replace('wss://', 'https://').replace('/ws', '');
@@ -123,6 +124,7 @@ export default function App() {
   const [rideStatus, setRideStatus] = useState('');
   const [searching, setSearching] = useState(false);
   const [localPushToken, setLocalPushToken] = useState(''); // Token sempre atualizado do dispositivo
+  const [historyVisible, setHistoryVisible] = useState(false);
 
   const ws = useRef(null);
   const webViewRef = useRef(null);
@@ -921,6 +923,12 @@ setInterval(function() {
             </View>
           )}
           <TouchableOpacity
+            onPress={() => setHistoryVisible(true)}
+            style={[styles.logoutButton, { backgroundColor: '#1e3a5f', marginRight: 2 }]}
+          >
+            <Text style={{ fontSize: 15 }}>📋</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => Alert.alert('Sair da conta?', 'Tem certeza que deseja sair?', [
               { text: 'Cancelar', style: 'cancel' },
               { text: 'Sair', style: 'destructive', onPress: async () => {
@@ -1103,6 +1111,7 @@ setInterval(function() {
       <PaymentModal visible={paymentVisible} ride={activeRide} onClose={() => setPaymentVisible(false)} onConfirm={(method) => { setPaymentVisible(false); completeRide(method); }} />
       <DestinationModal visible={destVisible} onClose={() => setDestVisible(false)} origin={location} onConfirm={requestRide} />
       <RatingModal visible={ratingVisible} onClose={() => setRatingVisible(false)} onSubmit={submitRating} isDriver={user.tipo === 'motorista'} />
+      <HistoryModal visible={historyVisible} onClose={() => setHistoryVisible(false)} user={user} httpUrl={HTTP_URL} />
     </SafeAreaView>
   );
 }

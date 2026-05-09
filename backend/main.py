@@ -135,6 +135,17 @@ async def _periodic_memory_cleanup():
 
             if to_delete or zombie_drivers:
                 logger.info(f"🧹 GC periódico: {len(to_delete)} corridas + {len(zombie_drivers)} motoristas zumbis removidos.")
+
+            # 3. Limpeza do banco: apaga corridas concluídas ou canceladas com mais de 15 dias
+            try:
+                conn = await get_db()
+                deleted = await conn.execute(
+                    "DELETE FROM rides WHERE status IN ('completed','cancelled') AND created_at < NOW() - INTERVAL '15 days'"
+                )
+                await release_db(conn)
+                logger.info(f"🗑️ GC DB: {deleted} corridas antigas (>15 dias) apagadas do banco.")
+            except Exception as db_err:
+                logger.error(f"Erro na limpeza do banco: {db_err}")
         except Exception as e:
             logger.error(f"Erro no GC periódico: {e}")
 
@@ -984,10 +995,20 @@ async def get_history(user_id: str):
     conn = await get_db()
     try:
         rows = await conn.fetch("""
-            SELECT r.*, u.nome as driver_nome FROM rides r
-            LEFT JOIN users u ON r.driver_id = u.user_id
-            WHERE r.passenger_id=$1 OR r.driver_id=$1
-            ORDER BY r.created_at DESC LIMIT 20
+            SELECT r.*,
+                   d.nome  as driver_nome,
+                   d.foto_url as driver_foto,
+                   d.veiculo as driver_veiculo,
+                   p.nome  as passenger_nome,
+                   p.foto_url as passenger_foto
+            FROM rides r
+            LEFT JOIN users d ON r.driver_id    = d.user_id
+            LEFT JOIN users p ON r.passenger_id = p.user_id
+            WHERE (r.passenger_id=$1 OR r.driver_id=$1)
+              AND r.status IN ('completed','cancelled')
+              AND r.created_at >= NOW() - INTERVAL '15 days'
+            ORDER BY r.created_at DESC
+            LIMIT 100
         """, user_id)
         return {"rides": [dict(r) for r in rows]}
     finally:
