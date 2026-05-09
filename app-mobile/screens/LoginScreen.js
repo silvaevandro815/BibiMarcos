@@ -79,13 +79,28 @@ let _localOtpStore = {};
 async function registerForPushNotifications() {
   if (!Device.isDevice) return null;
 
+  // Android 13+ exige permissao POST_NOTIFICATIONS explicitamente
   if (Platform.OS === 'android') {
+    const { status: notifStatus } = await Notifications.requestPermissionsAsync({
+      android: {
+        allowAlert: true,
+        allowBadge: true,
+        allowSound: true,
+        allowAnnouncements: true,
+      }
+    });
+    if (notifStatus !== 'granted') {
+      console.log('[Push] Permissao de notificacao negada');
+    }
+    // Cria o canal com as mesmas configuracoes do App.js (som da buzina + bypassDnd + lockscreen)
     await Notifications.setNotificationChannelAsync('corridas', {
       name: 'Corridas',
       importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
+      vibrationPattern: [0, 250, 250, 250, 250, 250],
       lightColor: '#10b981',
-      sound: 'default',
+      sound: 'horn.ogg',
+      bypassDnd: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     });
   }
 
@@ -95,10 +110,19 @@ async function registerForPushNotifications() {
     const { status } = await Notifications.requestPermissionsAsync();
     finalStatus = status;
   }
-  if (finalStatus !== 'granted') return null;
+  if (finalStatus !== 'granted') {
+    console.log('[Push] Token nao pode ser gerado: permissao negada');
+    return null;
+  }
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  const token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : {})).data;
-  return token;
+  try {
+    const token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : {})).data;
+    console.log('[Push] Token registrado:', token);
+    return token;
+  } catch (e) {
+    console.log('[Push] Erro ao obter token:', e);
+    return null;
+  }
 }
 
 const STEP = { PHONE: 'phone', OTP: 'otp', REGISTER: 'register', RECOVER: 'recover', RECOVER_OTP: 'recover_otp' };

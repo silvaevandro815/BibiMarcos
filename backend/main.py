@@ -283,6 +283,7 @@ async def notify(user_id: str, message: dict):
 
 async def send_push(push_token: str, title: str, body: str, data: dict = {}):
     if not push_token or not push_token.startswith("ExponentPushToken"):
+        print(f"[Push] Token invalido ou ausente: '{push_token}' — notificacao ignorada")
         return
     import urllib.request
     payload = json.dumps({
@@ -293,17 +294,56 @@ async def send_push(push_token: str, title: str, body: str, data: dict = {}):
         "sound": "horn.ogg",
         "priority": "high",
         "channelId": "corridas",
+        "ttl": 60,
+        "expiration": None,
+        "badge": 1,
     }).encode()
     req = urllib.request.Request(
         "https://exp.host/--/api/v2/push/send",
         data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate",
+        },
         method="POST"
     )
     try:
-        urllib.request.urlopen(req, timeout=5)
-    except:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = resp.read().decode()
+            print(f"[Push] Enviado para {push_token[:30]}... Resposta: {result[:200]}")
+    except Exception as e:
+        print(f"[Push] ERRO ao enviar para {push_token[:30]}...: {e}")
         pass
+
+
+@app.post("/api/test-push")
+async def test_push(data: dict):
+    """Endpoint de diagnostico: testa notificacao push manualmente via token."""
+    token = data.get("push_token", "")
+    if not token:
+        raise HTTPException(status_code=400, detail="push_token obrigatorio")
+    await send_push(
+        token,
+        "\ud83d\ude97 Teste BibiMarcos",
+        "Se voce recebeu isso com som, as notificacoes estao funcionando!",
+        {"type": "test"}
+    )
+    return {"status": "enviado", "token": token[:30] + "..."}
+
+
+@app.get("/api/drivers/tokens")
+async def list_driver_tokens():
+    """Diagnostico: lista tokens ativos dos motoristas online."""
+    result = []
+    for uid, d in online_drivers.items():
+        result.append({
+            "user_id": uid,
+            "nome": d.get("nome"),
+            "push_token": d.get("push_token", "")[:30] + "..." if d.get("push_token") else "SEM TOKEN",
+            "status": d.get("status")
+        })
+    return {"motoristas_online": result, "total": len(result)}
 
 
 # ============================================================
